@@ -1,0 +1,79 @@
+# Local Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+
+# Private captures, annotations, and generated CV datasets
+cv/data/
+cv/data_*/
+cv/*_labels/
+cv/*_review/
+cv/*_screenshots/
+cv/*_sample/
+cv/*_corrections.csv
+cv/candidate_classification.csv
+cv/new_classification.csv
+cv/card_detection.yaml
+
+# Runtime state and experiment output
+cv/logs/
+cv/hybrid_result*.jpg
+cv/training.log
+runs/
+*.log
+main.ipynb
+
+# Generated/training model files. Keep only the two release CV checkpoints.
+cv/models/**
+!cv/models/card_crop_classifier_v10.pt
+!cv/models/card_localizer.pt
+cv/yolov8n.pt
+
+# Keep the public repository focused on runtime and current training code.
+cv/scripts/*
+!cv/scripts/capture.py
+!cv/scripts/card_crop_classifier.py
+!cv/scripts/deck_count_detector.py
+!cv/scripts/export_runtime_assets.py
+!cv/scripts/game_state_tracker.py
+!cv/scripts/legal_move_advisor.py
+!cv/scripts/live_advisor.py
+!cv/scripts/neural_move_advisor.py
+!cv/scripts/neural_v3_advisor.py
+!cv/scripts/neural_v4_advisor.py
+!cv/scripts/status_detector.py
+!cv/scripts/test_hybrid_recognizer.py
+!cv/scripts/track_screenshots.py
+!cv/scripts/trump_detector.py
+cv/*.md
+cv/*.csv
+cv/*.sh
+*.jpg
+*.jpeg
+*.png
+
+# Superseded local experiments
+durak_model.pt
+run_training.py
+train.py
+test_deck_count_detector.py
+test_review_labels.py
+test_status_detector.py
+test_trump_detector.py
+
+# Experimental gameplay checkpoint is kept under runs and is not released.
+durak_model_v4.pt
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
