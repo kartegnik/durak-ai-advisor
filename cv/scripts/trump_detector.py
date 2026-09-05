@@ -23,9 +23,15 @@ class TrumpDetection:
 
 def _suit_glyph(crop: np.ndarray) -> np.ndarray:
     """Normalize only the large suit mark; ignore rank and court artwork."""
-    corner = crop[:42, :29]
-    hsv = cv2.cvtColor(corner, cv2.COLOR_BGR2HSV)
-    ink = ((hsv[:, :, 1] > 95) | (hsv[:, :, 2] < 105)).astype(np.uint8) * 255
+    # In the deskewed crop the large suit mark lives below the rank. Keeping
+    # the ROI narrow is important: otherwise 6S and JS look more like each
+    # other than two cards of the same suit do.
+    suit_roi = crop[14:32, :18]
+    hsv = cv2.cvtColor(suit_roi, cv2.COLOR_BGR2HSV)
+    hue, saturation, value = cv2.split(hsv)
+    red = (saturation > 95) & ((hue < 15) | (hue > 165))
+    black = value < 105
+    ink = (red | black).astype(np.uint8) * 255
     return cv2.resize(ink, (32, 44), interpolation=cv2.INTER_NEAREST)
 
 
@@ -78,7 +84,7 @@ def detect_trump(viewport: np.ndarray, classifier, suit_detector: TrumpSuitDetec
     crop = extract_trump(viewport)
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
     white_fraction = float(np.mean((hsv[:, :, 1] < 80) & (hsv[:, :, 2] > 155)))
-    card_present = white_fraction >= 0.18
+    white_card_candidate = white_fraction >= 0.18
     # The exposed card corner changes orientation depending on how much of the
     # deck covers it. Score several rotations and keep each suit's best view.
     crops = (
@@ -105,6 +111,16 @@ def detect_trump(viewport: np.ndarray, classifier, suit_detector: TrumpSuitDetec
     suit, confidence = max(suit_scores.items(), key=lambda item: item[1])
     if suit_detector is not None:
         suit, confidence = suit_detector.classify(crop)
+        suit_ink_fraction = float(np.mean(_suit_glyph(crop) > 0))
+        # A white popup or another window can overlap this fixed area. Treat
+        # the card as present only when it also contains a credible suit mark.
+        card_present = (
+            white_card_candidate
+            and suit_ink_fraction >= 0.03
+            and confidence >= 0.55
+        )
+    else:
+        card_present = white_card_candidate
     flat_id = probabilities.argmax().item()
     class_id = flat_id % len(CLASS_NAMES)
     return TrumpDetection(

@@ -69,7 +69,13 @@ def main() -> None:
         image = require_image(screenshots / f"game_{frame:04d}.png")
         bounds = viewport_bounds(image, zone, 20)
         viewport = image[bounds[1]:bounds[3], bounds[0]:bounds[2]]
-        suits.setdefault(suit, []).append(_suit_glyph(extract_trump(viewport)))
+        # Include resolution variants because on a smaller phone viewport the
+        # symbol is rasterized before it is normalized back to 64x96.
+        for scale in (0.5, 0.75, 1.0, 1.5):
+            scaled = cv2.resize(
+                viewport, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA
+            )
+            suits.setdefault(suit, []).append(_suit_glyph(extract_trump(scaled)))
     np.savez_compressed(assets / "trump_suit_templates.npz", **{
         suit: np.stack(variants) for suit, variants in suits.items()
     })
