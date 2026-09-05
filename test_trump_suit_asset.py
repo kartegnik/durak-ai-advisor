@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from io import BytesIO
 
 import cv2
 import numpy as np
@@ -47,6 +48,29 @@ class TrumpSuitAssetTest(unittest.TestCase):
                     for second in detector.templates[second_suit]
                 )
                 self.assertGreater(distance, 20.0)
+
+    def test_android_asset_matches_runtime_templates(self):
+        expected = TrumpSuitDetector.from_asset(
+            PROJECT / "cv/assets/trump_suit_templates.npz"
+        ).templates
+        stream = BytesIO(
+            (PROJECT / "android/app/src/main/assets/trump_suit_templates.bin").read_bytes()
+        )
+        self.assertEqual(stream.read(4), b"DTS1")
+        decoded = {}
+        for _ in range(stream.read(1)[0]):
+            suit = stream.read(1).decode("ascii")
+            variants = []
+            for _ in range(stream.read(1)[0]):
+                data = np.frombuffer(stream.read(44 * 32), dtype=np.uint8)
+                variants.append(data.reshape(44, 32))
+            decoded[suit] = variants
+        self.assertEqual(stream.read(), b"")
+        self.assertEqual(set(decoded), set(expected))
+        for suit in expected:
+            self.assertEqual(len(decoded[suit]), len(expected[suit]))
+            for actual, reference in zip(decoded[suit], expected[suit]):
+                np.testing.assert_array_equal(actual, reference)
 
 
 if __name__ == "__main__":

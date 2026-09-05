@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from deck_count_detector import _glyphs
+from export_android_assets import write_trump_templates
 from status_detector import glyph_signature, status_crop
 from test_hybrid_recognizer import viewport_bounds
 from trump_detector import _suit_glyph, extract_trump
@@ -79,6 +80,11 @@ def main() -> None:
     np.savez_compressed(assets / "trump_suit_templates.npz", **{
         suit: np.stack(variants) for suit, variants in suits.items()
     })
+
+    write_trump_templates(
+        assets / "trump_suit_templates.npz",
+        project / "android/app/src/main/assets/trump_suit_templates.bin",
+    )
 
     shutil.copy2(
         project / "runs/detect/durak_training/card_localizer_expanded_416/weights/best.pt",

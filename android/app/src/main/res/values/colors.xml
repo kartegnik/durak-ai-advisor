@@ -1,0 +1,6 @@
+<resources>
+    <color name="advisor_background">#F4F6FA</color>
+    <color name="advisor_primary">#183153</color>
+    <color name="advisor_accent">#177245</color>
+    <color name="advisor_text">#17202A</color>
+</resources>
