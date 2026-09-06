@@ -35,7 +35,7 @@ public final class ScreenCaptureService extends Service {
 
     private static final String CHANNEL_ID = "screen_analysis";
     private static final int NOTIFICATION_ID = 41;
-    private static final long FRAME_INTERVAL_MS = 500L;
+    private static final long FRAME_INTERVAL_MS = 300L;
     private static volatile boolean running;
 
     private HandlerThread captureThread;

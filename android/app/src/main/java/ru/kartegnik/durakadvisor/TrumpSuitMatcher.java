@@ -27,6 +27,14 @@ final class TrumpSuitMatcher {
             {0.055093, 0.378305}, {0.211612, 0.399925},
             {0.168435, 0.525322}, {-0.015070, 0.495054},
     });
+    // Depending on which player starts, the game fans the face-up trump card
+    // in the opposite direction. On a tall edge-to-edge phone screen this
+    // version is also clipped by the left display edge, so it needs its own
+    // calibrated crop instead of mirroring the older transform.
+    private static final double[] REVERSED_PHONE_SCREEN_TRANSFORM = homography(new double[][]{
+            {-0.005300, 0.388040}, {0.137200, 0.366440},
+            {0.199200, 0.488760}, {0.031700, 0.506360},
+    });
 
     static final class Detection {
         final String suit;
@@ -98,6 +106,10 @@ final class TrumpSuitMatcher {
                 screenWidth, screenHeight, PHONE_SCREEN_ASPECT)) {
             Candidate candidate = detectInViewport(
                     pixels, screenWidth, screenHeight, viewport, PHONE_SCREEN_TRANSFORM);
+            best = better(best, candidate);
+            candidate = detectInViewport(
+                    pixels, screenWidth, screenHeight, viewport,
+                    REVERSED_PHONE_SCREEN_TRANSFORM);
             best = better(best, candidate);
         }
         for (Viewport viewport : candidateViewports(

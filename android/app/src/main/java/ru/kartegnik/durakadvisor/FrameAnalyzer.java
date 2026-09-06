@@ -8,7 +8,7 @@ import java.io.InputStream;
 import java.util.Locale;
 
 final class FrameAnalyzer {
-    private static final int MAX_ANALYSIS_WIDTH = 540;
+    private static final int MAX_ANALYSIS_WIDTH = 576;
 
     interface Listener {
         void onText(String text);
@@ -71,7 +71,7 @@ final class FrameAnalyzer {
         return switch (suit) {
             case "H" -> "черви";
             case "D" -> "бубны";
-            case "C" -> "трефы";
+            case "C" -> "крести";
             case "S" -> "пики";
             default -> suit;
         };
