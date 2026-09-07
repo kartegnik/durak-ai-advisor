@@ -27,9 +27,10 @@ jobs:
           cache: gradle
       - name: Verify generated trump templates
         run: |
-          python -m pip install numpy
+          python -m pip install numpy onnxruntime
           python cv/scripts/export_android_assets.py
           git diff --exit-code -- android/app/src/main/assets/trump_suit_templates.bin
+          python -m unittest -v test_android_card_models.py test_trump_suit_asset.py
       - name: Build and test
         working-directory: android
         run: ./gradlew lintDebug testDebugUnitTest assembleDebug

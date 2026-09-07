@@ -45,6 +45,7 @@ cv/scripts/*
 !cv/scripts/deck_count_detector.py
 !cv/scripts/export_runtime_assets.py
 !cv/scripts/export_android_assets.py
+!cv/scripts/export_android_models.py
 !cv/scripts/game_state_tracker.py
 !cv/scripts/legal_move_advisor.py
 !cv/scripts/live_advisor.py

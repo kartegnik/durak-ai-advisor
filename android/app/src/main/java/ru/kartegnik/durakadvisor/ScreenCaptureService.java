@@ -145,6 +145,15 @@ public final class ScreenCaptureService extends Service {
             mediaProjection.stop();
             mediaProjection = null;
         }
+        if (analyzer != null) {
+            FrameAnalyzer closingAnalyzer = analyzer;
+            if (captureHandler != null) {
+                captureHandler.post(closingAnalyzer::close);
+            } else {
+                closingAnalyzer.close();
+            }
+            analyzer = null;
+        }
         if (captureThread != null) {
             captureThread.quitSafely();
             captureThread = null;

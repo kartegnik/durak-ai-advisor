@@ -23,6 +23,7 @@ final class OverlayController {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private LinearLayout view;
     private TextView statusView;
+    private LinearLayout controlsView;
 
     OverlayController(Context context, Runnable resetAction, Consumer<String> suitAction) {
         this.context = context;
@@ -50,8 +51,8 @@ final class OverlayController {
         }
         if (view == null) {
             view = new LinearLayout(context);
-            view.setOrientation(LinearLayout.HORIZONTAL);
-            view.setGravity(Gravity.CENTER_VERTICAL);
+            view.setOrientation(LinearLayout.VERTICAL);
+            view.setGravity(Gravity.CENTER_HORIZONTAL);
             int horizontal = dp(14);
             int vertical = dp(9);
             view.setPadding(horizontal, vertical, horizontal, vertical);
@@ -63,9 +64,18 @@ final class OverlayController {
 
             statusView = new TextView(context);
             statusView.setTextColor(Color.WHITE);
-            statusView.setTextSize(16f);
+            statusView.setTextSize(14f);
             statusView.setGravity(Gravity.CENTER);
+            statusView.setMaxWidth(
+                    context.getResources().getDisplayMetrics().widthPixels * 9 / 10);
             view.addView(statusView, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            controlsView = new LinearLayout(context);
+            controlsView.setOrientation(LinearLayout.HORIZONTAL);
+            controlsView.setGravity(Gravity.CENTER);
+            view.addView(controlsView, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -77,7 +87,7 @@ final class OverlayController {
             TextView reset = actionView("↻", 0xffb9ffcf);
             reset.setContentDescription("Повторить автоматический поиск козыря");
             reset.setOnClickListener(ignored -> resetAction.run());
-            view.addView(reset);
+            controlsView.addView(reset);
 
             WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.WRAP_CONTENT,
@@ -88,7 +98,7 @@ final class OverlayController {
                             | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                     PixelFormat.TRANSLUCENT);
             params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
-            params.y = dp(20);
+            params.y = dp(4);
             windowManager.addView(view, params);
         }
         statusView.setText(text);
@@ -98,7 +108,7 @@ final class OverlayController {
         TextView button = actionView(symbol, color);
         button.setContentDescription("Выбрать козырь: " + description);
         button.setOnClickListener(ignored -> suitAction.accept(suit));
-        view.addView(button);
+        controlsView.addView(button);
     }
 
     private TextView actionView(String text, int color) {
