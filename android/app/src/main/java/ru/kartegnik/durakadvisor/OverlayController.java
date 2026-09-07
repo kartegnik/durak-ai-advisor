@@ -8,17 +8,26 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
+import android.view.ViewGroup;
 import android.view.WindowManager;
+import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import java.util.function.Consumer;
 
 final class OverlayController {
     private final Context context;
     private final WindowManager windowManager;
+    private final Runnable resetAction;
+    private final Consumer<String> suitAction;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private TextView view;
+    private LinearLayout view;
+    private TextView statusView;
 
-    OverlayController(Context context) {
+    OverlayController(Context context, Runnable resetAction, Consumer<String> suitAction) {
         this.context = context;
+        this.resetAction = resetAction;
+        this.suitAction = suitAction;
         this.windowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
     }
 
@@ -40,10 +49,9 @@ final class OverlayController {
             return;
         }
         if (view == null) {
-            view = new TextView(context);
-            view.setTextColor(Color.WHITE);
-            view.setTextSize(16f);
-            view.setGravity(Gravity.CENTER);
+            view = new LinearLayout(context);
+            view.setOrientation(LinearLayout.HORIZONTAL);
+            view.setGravity(Gravity.CENTER_VERTICAL);
             int horizontal = dp(14);
             int vertical = dp(9);
             view.setPadding(horizontal, vertical, horizontal, vertical);
@@ -53,19 +61,57 @@ final class OverlayController {
             background.setCornerRadius(dp(12));
             view.setBackground(background);
 
+            statusView = new TextView(context);
+            statusView.setTextColor(Color.WHITE);
+            statusView.setTextSize(16f);
+            statusView.setGravity(Gravity.CENTER);
+            view.addView(statusView, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+
+            addSuitButton("♥", "H", 0xffff7a7a, "Черви");
+            addSuitButton("♦", "D", 0xffff7a7a, "Бубны");
+            addSuitButton("♣", "C", Color.WHITE, "Крести");
+            addSuitButton("♠", "S", Color.WHITE, "Пики");
+
+            TextView reset = actionView("↻", 0xffb9ffcf);
+            reset.setContentDescription("Повторить автоматический поиск козыря");
+            reset.setOnClickListener(ignored -> resetAction.run());
+            view.addView(reset);
+
             WindowManager.LayoutParams params = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.WRAP_CONTENT,
                     WindowManager.LayoutParams.WRAP_CONTENT,
                     WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                            | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                             | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                     PixelFormat.TRANSLUCENT);
             params.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
             params.y = dp(20);
             windowManager.addView(view, params);
         }
-        view.setText(text);
+        statusView.setText(text);
+    }
+
+    private void addSuitButton(String symbol, String suit, int color, String description) {
+        TextView button = actionView(symbol, color);
+        button.setContentDescription("Выбрать козырь: " + description);
+        button.setOnClickListener(ignored -> suitAction.accept(suit));
+        view.addView(button);
+    }
+
+    private TextView actionView(String text, int color) {
+        TextView button = new TextView(context);
+        button.setText(text);
+        button.setTextColor(color);
+        button.setTextSize(21f);
+        button.setGravity(Gravity.CENTER);
+        button.setPadding(dp(6), dp(3), dp(6), dp(3));
+        button.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        return button;
     }
 
     private int dp(int value) {

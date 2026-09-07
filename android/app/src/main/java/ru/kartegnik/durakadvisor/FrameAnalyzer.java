@@ -5,10 +5,12 @@ import android.graphics.Bitmap;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 import java.util.Locale;
 
 final class FrameAnalyzer {
     private static final int MAX_ANALYSIS_WIDTH = 576;
+    private static final double MIN_LOCK_CONFIDENCE = 0.65;
 
     interface Listener {
         void onText(String text);
@@ -28,6 +30,10 @@ final class FrameAnalyzer {
     }
 
     void analyze(Bitmap bitmap) {
+        if (lockedSuit != null) {
+            listener.onText("Козырь: " + suitName(lockedSuit));
+            return;
+        }
         Bitmap analysis = bitmap;
         if (bitmap.getWidth() > MAX_ANALYSIS_WIDTH) {
             int scaledHeight = Math.round(
@@ -44,7 +50,10 @@ final class FrameAnalyzer {
         }
         TrumpSuitMatcher.Detection detection = matcher.detect(pixels, width, height);
 
-        if (lockedSuit == null && detection.cardPresent && detection.suit != null) {
+        boolean reliable = detection.cardPresent
+                && detection.suit != null
+                && detection.confidence >= MIN_LOCK_CONFIDENCE;
+        if (lockedSuit == null && reliable) {
             if (detection.suit.equals(candidate)) {
                 candidateFrames++;
             } else {
@@ -54,6 +63,11 @@ final class FrameAnalyzer {
             if (candidateFrames >= 2) {
                 lockedSuit = candidate;
             }
+        } else if (lockedSuit == null) {
+            // Matching observations must be consecutive. A missing or weak
+            // card between them means that dealing has not settled yet.
+            candidate = null;
+            candidateFrames = 0;
         }
 
         if (lockedSuit != null) {
@@ -65,6 +79,22 @@ final class FrameAnalyzer {
         } else {
             listener.onText("Ищу козырную карту…");
         }
+    }
+
+    void reset() {
+        candidate = null;
+        candidateFrames = 0;
+        lockedSuit = null;
+    }
+
+    void lockSuit(String suit) {
+        if (!List.of("H", "D", "C", "S").contains(suit)) {
+            throw new IllegalArgumentException("Unsupported suit: " + suit);
+        }
+        candidate = null;
+        candidateFrames = 0;
+        lockedSuit = suit;
+        listener.onText("Козырь: " + suitName(lockedSuit));
     }
 
     private static String suitName(String suit) {

@@ -30,10 +30,21 @@ public final class MainActivity extends Activity {
         status = findViewById(R.id.status);
         Button grantOverlay = findViewById(R.id.grantOverlay);
         Button startCapture = findViewById(R.id.startCapture);
+        Button resetCapture = findViewById(R.id.resetCapture);
         Button stopCapture = findViewById(R.id.stopCapture);
 
         grantOverlay.setOnClickListener(view -> requestOverlayPermission());
         startCapture.setOnClickListener(view -> prepareCapture());
+        resetCapture.setOnClickListener(view -> {
+            if (!ScreenCaptureService.isRunning()) {
+                status.setText(R.string.status_stopped);
+                return;
+            }
+            Intent intent = new Intent(this, ScreenCaptureService.class);
+            intent.setAction(ScreenCaptureService.ACTION_RESET);
+            startService(intent);
+            status.setText(R.string.status_restarted);
+        });
         stopCapture.setOnClickListener(view -> {
             Intent intent = new Intent(this, ScreenCaptureService.class);
             intent.setAction(ScreenCaptureService.ACTION_STOP);

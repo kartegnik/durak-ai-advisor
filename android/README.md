@@ -8,7 +8,7 @@ Current milestone (`0.1.0`):
 
 - asks for Android's screen-capture consent;
 - runs capture in a `mediaProjection` foreground service;
-- shows a pass-through overlay above the game;
+- shows an overlay above the game with manual suit buttons and automatic retry;
 - recognizes and locks the trump suit after two matching frames;
 - tries the complete screen plus top-aligned and centered reference-aspect
   viewports, so navigation bars and taller displays do not require a fixed

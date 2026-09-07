@@ -6,8 +6,10 @@
     <string name="status_stopped">Анализ остановлен</string>
     <string name="status_ready">Можно запускать анализ</string>
     <string name="status_running">Анализ экрана запущен</string>
+    <string name="status_restarted">Поиск козыря запущен заново</string>
     <string name="status_overlay_required">Сначала разрешите показ поверх других приложений</string>
     <string name="grant_overlay">1. Разрешить подсказку поверх игры</string>
     <string name="start_capture">2. Начать анализ экрана</string>
+    <string name="reset_capture">Перезапустить поиск козыря</string>
     <string name="stop_capture">Остановить анализ</string>
 </resources>

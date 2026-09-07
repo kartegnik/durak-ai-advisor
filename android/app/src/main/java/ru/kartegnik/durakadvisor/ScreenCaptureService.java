@@ -30,6 +30,7 @@ import java.nio.ByteBuffer;
 public final class ScreenCaptureService extends Service {
     static final String ACTION_START = "ru.kartegnik.durakadvisor.START";
     static final String ACTION_STOP = "ru.kartegnik.durakadvisor.STOP";
+    static final String ACTION_RESET = "ru.kartegnik.durakadvisor.RESET";
     static final String EXTRA_RESULT_CODE = "result_code";
     static final String EXTRA_RESULT_DATA = "result_data";
 
@@ -58,7 +59,8 @@ public final class ScreenCaptureService extends Service {
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
-        overlay = new OverlayController(this);
+        overlay = new OverlayController(
+                this, this::requestAnalyzerReset, this::requestManualSuit);
         try {
             analyzer = new FrameAnalyzer(this, overlay::show);
         } catch (IOException error) {
@@ -73,6 +75,10 @@ public final class ScreenCaptureService extends Service {
         }
         if (ACTION_STOP.equals(intent.getAction())) {
             stopSelf();
+            return START_NOT_STICKY;
+        }
+        if (ACTION_RESET.equals(intent.getAction())) {
+            requestAnalyzerReset();
             return START_NOT_STICKY;
         }
         if (!ACTION_START.equals(intent.getAction()) || analyzer == null) {
@@ -90,6 +96,26 @@ public final class ScreenCaptureService extends Service {
             startProjection(resultCode, resultData);
         }
         return START_NOT_STICKY;
+    }
+
+    private void requestAnalyzerReset() {
+        Handler handler = captureHandler;
+        if (handler == null || analyzer == null) {
+            return;
+        }
+        handler.post(() -> {
+            analyzer.reset();
+            lastFrameAt = 0L;
+            overlay.show("Ищу козырную карту…");
+        });
+    }
+
+    private void requestManualSuit(String suit) {
+        Handler handler = captureHandler;
+        if (handler == null || analyzer == null) {
+            return;
+        }
+        handler.post(() -> analyzer.lockSuit(suit));
     }
 
     @Override
