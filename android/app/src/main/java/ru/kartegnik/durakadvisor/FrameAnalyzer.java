@@ -17,7 +17,7 @@ import ai.onnxruntime.OrtException;
 final class FrameAnalyzer {
     private static final int MAX_ANALYSIS_WIDTH = 576;
     private static final double MIN_LOCK_CONFIDENCE = 0.65;
-    private static final long CARD_ANALYSIS_INTERVAL_MS = 700L;
+    private static final long CARD_ANALYSIS_INTERVAL_MS = 500L;
 
     interface Listener {
         void onText(String text);
@@ -25,6 +25,8 @@ final class FrameAnalyzer {
 
     private final TrumpSuitMatcher matcher;
     private final CardRecognizer cardRecognizer;
+    private final DurakPolicyAdvisor policyAdvisor;
+    private final GameStateTracker tracker = new GameStateTracker();
     private final Listener listener;
     private String candidate;
     private int candidateFrames;
@@ -32,6 +34,7 @@ final class FrameAnalyzer {
     private List<CardRecognizer.DetectedCard> detectedCards = List.of();
     private long lastCardAnalysisAt;
     private boolean cardRecognizerFailed;
+    private boolean policyFailed;
 
     FrameAnalyzer(Context context, Listener listener) throws IOException {
         this.listener = listener;
@@ -39,6 +42,7 @@ final class FrameAnalyzer {
             matcher = new TrumpSuitMatcher(stream);
         }
         cardRecognizer = new CardRecognizer(context);
+        policyAdvisor = new DurakPolicyAdvisor(context);
     }
 
     void analyze(Bitmap bitmap) {
@@ -68,6 +72,18 @@ final class FrameAnalyzer {
             lastCardAnalysisAt = now;
             try {
                 detectedCards = cardRecognizer.detect(pixels, width, height);
+                List<GameStateTracker.ObservedCard> observation = new ArrayList<>();
+                for (CardRecognizer.DetectedCard card : detectedCards) {
+                    GameStateTracker.Zone zone = switch (card.zone) {
+                        case OPPONENT -> GameStateTracker.Zone.OPPONENT;
+                        case TABLE -> GameStateTracker.Zone.TABLE;
+                        case HAND -> GameStateTracker.Zone.HAND;
+                    };
+                    observation.add(new GameStateTracker.ObservedCard(
+                            card.card, zone, card.classConfidence, card.boxConfidence,
+                            card.centerX, card.centerY));
+                }
+                tracker.observe(observation);
             } catch (OrtException | RuntimeException error) {
                 cardRecognizerFailed = true;
                 detectedCards = List.of();
@@ -102,6 +118,10 @@ final class FrameAnalyzer {
         candidate = null;
         candidateFrames = 0;
         lockedSuit = null;
+        tracker.reset();
+        policyAdvisor.reset();
+        detectedCards = List.of();
+        policyFailed = false;
     }
 
     void lockSuit(String suit) {
@@ -116,6 +136,7 @@ final class FrameAnalyzer {
 
     void close() {
         cardRecognizer.close();
+        policyAdvisor.close();
     }
 
     private String displayText(TrumpSuitMatcher.Detection detection) {
@@ -135,9 +156,37 @@ final class FrameAnalyzer {
 
         List<CardRecognizer.DetectedCard> hand = cardsIn(CardRecognizer.Zone.HAND);
         List<CardRecognizer.DetectedCard> table = cardsIn(CardRecognizer.Zone.TABLE);
-        return trumpText
+        String result = trumpText
                 + "\nРука: " + cardList(hand)
                 + "\nСтол: " + cardList(table);
+        if (lockedSuit == null) {
+            return result + "\nСовет: выберите козырь";
+        }
+        if (!tracker.initialized()) {
+            return result + "\nСовет: запоминаю начальную руку…";
+        }
+        if (!tracker.readyForAdvice()) {
+            return result + "\nСовет: жду раздачу карт…";
+        }
+        DurakRules.Advice advice = DurakRules.legalActions(
+                tracker.hand(), tracker.attacks(), tracker.defenses(),
+                tracker.playerAttacker(), lockedSuit);
+        if (advice.options.isEmpty()) {
+            return result + "\nСовет: " + advice.note;
+        }
+        if (policyFailed) {
+            return result + "\nСовет: ошибка игровой модели";
+        }
+        try {
+            DurakPolicyAdvisor.Recommendation recommendation = policyAdvisor.recommend(
+                    tracker, lockedSuit, advice.options);
+            String prefix = tracker.playerAttacker() == null
+                    ? "Если ваш ход: " : "Совет: ";
+            return result + "\n" + prefix + recommendation.action;
+        } catch (OrtException | RuntimeException error) {
+            policyFailed = true;
+            return result + "\nСовет: ошибка игровой модели";
+        }
     }
 
     private List<CardRecognizer.DetectedCard> cardsIn(CardRecognizer.Zone zone) {
@@ -160,29 +209,9 @@ final class FrameAnalyzer {
         StringJoiner result = new StringJoiner(" ");
         for (CardRecognizer.DetectedCard card : cards) {
             boolean uncertain = card.classConfidence < 0.65 || card.boxConfidence < 0.35;
-            result.add(displayCard(card.card) + (uncertain ? "?" : ""));
+            result.add(DurakRules.displayCard(card.card) + (uncertain ? "?" : ""));
         }
         return result.toString();
-    }
-
-    private static String displayCard(String card) {
-        String rank = card.substring(0, card.length() - 1);
-        String suit = card.substring(card.length() - 1);
-        rank = switch (rank) {
-            case "J" -> "В";
-            case "Q" -> "Д";
-            case "K" -> "К";
-            case "A" -> "Т";
-            default -> rank;
-        };
-        String symbol = switch (suit) {
-            case "H" -> "♥";
-            case "D" -> "♦";
-            case "C" -> "♣";
-            case "S" -> "♠";
-            default -> suit;
-        };
-        return rank + symbol;
     }
 
     private static String suitName(String suit) {

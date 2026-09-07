@@ -10,8 +10,8 @@ android {
         applicationId = "ru.kartegnik.durakadvisor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
     }
 
     buildTypes {
@@ -32,4 +32,5 @@ android {
 
 dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.29.0")
+    testImplementation("junit:junit:4.13.2")
 }

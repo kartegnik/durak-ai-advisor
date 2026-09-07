@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -14,7 +15,32 @@ import onnxruntime as ort
 import torch
 from ultralytics import YOLO
 
+PROJECT = Path(__file__).resolve().parents[2]
+if str(PROJECT) not in sys.path:
+    sys.path.insert(0, str(PROJECT))
+
 from card_crop_classifier import CLASS_NAMES, load_card_classifier
+from durak_v3.model import RecurrentActorCritic
+from durak_v3.observation import OBSERVATION_DIM
+from state import OPTION_DIM
+
+
+class PolicyStep(torch.nn.Module):
+    """Expose only the recurrent policy path used by the live advisor."""
+
+    def __init__(self, model: RecurrentActorCritic):
+        super().__init__()
+        self.model = model
+
+    def forward(self, observation, options, hidden):
+        encoded = self.model.observation_encoder(observation)
+        next_hidden = self.model.memory(encoded, hidden)
+        option_features = self.model.option_encoder(options)
+        context = next_hidden.unsqueeze(0).expand(option_features.shape[0], -1)
+        logits = self.model.policy(
+            torch.cat((context, option_features), dim=-1),
+        ).squeeze(-1)
+        return logits, next_hidden
 
 
 def export_localizer(source: Path, target: Path) -> None:
@@ -51,16 +77,38 @@ def export_classifier(source: Path, target: Path) -> None:
     )
 
 
-def verify_model(path: Path, input_name: str, shape: tuple[int, ...]) -> tuple[int, ...]:
+def export_policy(source: Path, target: Path) -> int:
+    saved = torch.load(source, map_location="cpu", weights_only=True)
+    model = RecurrentActorCritic(**saved.get("model_config", {}))
+    model.load_state_dict(saved["model"])
+    wrapper = PolicyStep(model.eval())
+    observation = torch.zeros(OBSERVATION_DIM, dtype=torch.float32)
+    options = torch.zeros((2, OPTION_DIM), dtype=torch.float32)
+    hidden = model.initial_hidden()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    torch.onnx.export(
+        wrapper,
+        (observation, options, hidden),
+        target,
+        input_names=("observation", "options", "hidden"),
+        output_names=("logits", "next_hidden"),
+        dynamic_axes={"options": {0: "options"}, "logits": {0: "options"}},
+        opset_version=17,
+        dynamo=False,
+    )
+    return model.hidden_size
+
+
+def verify_model(path: Path, inputs: dict[str, np.ndarray]) -> tuple[tuple[int, ...], ...]:
     model = onnx.load(path)
     onnx.checker.check_model(model)
     session = ort.InferenceSession(path, providers=("CPUExecutionProvider",))
-    output = session.run(None, {input_name: np.zeros(shape, dtype=np.float32)})[0]
-    return tuple(output.shape)
+    outputs = session.run(None, inputs)
+    return tuple(tuple(output.shape) for output in outputs)
 
 
 def main() -> None:
-    project = Path(__file__).resolve().parents[2]
+    project = PROJECT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--localizer", type=Path,
@@ -71,6 +119,10 @@ def main() -> None:
         default=project / "cv/models/card_crop_classifier_v10.pt",
     )
     parser.add_argument(
+        "--policy", type=Path,
+        default=project / "durak_model_v3.pt",
+    )
+    parser.add_argument(
         "--output", type=Path,
         default=project / "android/app/src/main/assets/models",
     )
@@ -78,18 +130,32 @@ def main() -> None:
 
     localizer = args.output / "card_localizer.onnx"
     classifier = args.output / "card_classifier.onnx"
+    policy = args.output / "durak_policy_v3.onnx"
     export_localizer(args.localizer, localizer)
     export_classifier(args.classifier, classifier)
+    policy_hidden_size = export_policy(args.policy, policy)
 
-    localizer_shape = verify_model(localizer, "images", (1, 3, 416, 416))
-    classifier_shape = verify_model(classifier, "cards", (2, 3, 96, 64))
-    if localizer_shape != (1, 5, 3549):
-        raise ValueError(f"unexpected localizer output: {localizer_shape}")
-    if classifier_shape != (2, len(CLASS_NAMES)):
-        raise ValueError(f"unexpected classifier output: {classifier_shape}")
+    localizer_shapes = verify_model(localizer, {
+        "images": np.zeros((1, 3, 416, 416), dtype=np.float32),
+    })
+    classifier_shapes = verify_model(classifier, {
+        "cards": np.zeros((2, 3, 96, 64), dtype=np.float32),
+    })
+    policy_shapes = verify_model(policy, {
+        "observation": np.zeros(OBSERVATION_DIM, dtype=np.float32),
+        "options": np.zeros((2, OPTION_DIM), dtype=np.float32),
+        "hidden": np.zeros(policy_hidden_size, dtype=np.float32),
+    })
+    if localizer_shapes != ((1, 5, 3549),):
+        raise ValueError(f"unexpected localizer output: {localizer_shapes}")
+    if classifier_shapes != ((2, len(CLASS_NAMES)),):
+        raise ValueError(f"unexpected classifier output: {classifier_shapes}")
+    if policy_shapes != ((2,), (policy_hidden_size,)):
+        raise ValueError(f"unexpected policy output: {policy_shapes}")
 
     print(f"Exported {localizer.relative_to(project)} ({localizer.stat().st_size} bytes)")
     print(f"Exported {classifier.relative_to(project)} ({classifier.stat().st_size} bytes)")
+    print(f"Exported {policy.relative_to(project)} ({policy.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

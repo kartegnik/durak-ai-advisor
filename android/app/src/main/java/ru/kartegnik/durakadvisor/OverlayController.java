@@ -85,7 +85,7 @@ final class OverlayController {
             addSuitButton("♠", "S", Color.WHITE, "Пики");
 
             TextView reset = actionView("↻", 0xffb9ffcf);
-            reset.setContentDescription("Повторить автоматический поиск козыря");
+            reset.setContentDescription("Начать отслеживание новой партии");
             reset.setOnClickListener(ignored -> resetAction.run());
             controlsView.addView(reset);
 
