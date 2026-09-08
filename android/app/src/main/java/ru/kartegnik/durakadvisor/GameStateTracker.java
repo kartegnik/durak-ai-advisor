@@ -49,6 +49,7 @@ final class GameStateTracker {
     private final Set<String> discard = new LinkedHashSet<>();
     private final Set<String> knownOpponent = new LinkedHashSet<>();
     private final Map<String, Integer> drawCandidates = new HashMap<>();
+    private Set<String> lastVisibleHand = Set.of();
     private Set<String> initialCandidate = Set.of();
     private Set<String> refreshCandidate = Set.of();
     private int initialCandidateFrames;
@@ -64,6 +65,7 @@ final class GameStateTracker {
     private Integer lastEventKind;
     private List<String> lastEventCards = List.of();
     private Boolean lastEventActorSelf;
+    private String suggestedOpeningCard;
 
     void reset() {
         hand.clear();
@@ -73,6 +75,7 @@ final class GameStateTracker {
         discard.clear();
         knownOpponent.clear();
         drawCandidates.clear();
+        lastVisibleHand = Set.of();
         initialCandidate = Set.of();
         refreshCandidate = Set.of();
         initialCandidateFrames = 0;
@@ -88,18 +91,18 @@ final class GameStateTracker {
         lastEventKind = null;
         lastEventCards = List.of();
         lastEventActorSelf = null;
+        suggestedOpeningCard = null;
     }
 
     void observe(List<ObservedCard> observed) {
         Set<String> visibleHand = new LinkedHashSet<>();
         List<ObservedCard> visibleTableItems = new ArrayList<>();
         for (ObservedCard card : observed) {
-            if (!card.reliable()) {
-                continue;
-            }
-            if (card.zone == Zone.HAND) {
+            if (card.zone == Zone.HAND && card.reliable()) {
                 visibleHand.add(card.card);
-            } else if (card.zone == Zone.TABLE) {
+            } else if (card.zone == Zone.TABLE
+                    && card.classConfidence >= 0.40f
+                    && card.boxConfidence >= 0.20f) {
                 visibleTableItems.add(card);
             }
         }
@@ -114,9 +117,13 @@ final class GameStateTracker {
         if (!initialized) {
             stabilizeInitialHand(visibleHand);
             if (!initialized) {
+                lastVisibleHand = Set.copyOf(visibleHand);
                 return;
             }
         }
+
+        boolean handCountDecreased = !lastVisibleHand.isEmpty()
+                && visibleHand.size() < lastVisibleHand.size();
 
         if (!table.isEmpty()) {
             Set<String> overlap = new HashSet<>(visibleTable);
@@ -140,13 +147,14 @@ final class GameStateTracker {
             }
         }
 
-        processNewTableCards(visibleTableItems);
+        processNewTableCards(visibleTableItems, handCountDecreased);
         // Card identities are unique in a 36-card deck. Even if a table card
         // was already remembered before this frame, it can no longer remain
         // in our hand. Keeping this invariant prevents stale suggestions such
         // as transferring with the same card already visible on the table.
         hand.removeAll(table);
         observeHand(visibleHand);
+        lastVisibleHand = Set.copyOf(visibleHand);
     }
 
     private void stabilizeInitialHand(Set<String> visibleHand) {
@@ -167,16 +175,35 @@ final class GameStateTracker {
         }
     }
 
-    private void processNewTableCards(List<ObservedCard> visibleTableItems) {
+    private void processNewTableCards(
+            List<ObservedCard> visibleTableItems, boolean handCountDecreased) {
         Set<String> oldHand = new HashSet<>(hand);
+        oldHand.addAll(lastVisibleHand);
         boolean tableWasEmpty = table.isEmpty();
+        int unseenCards = 0;
+        for (ObservedCard item : visibleTableItems) {
+            unseenCards += table.contains(item.card) ? 0 : 1;
+        }
         for (ObservedCard item : visibleTableItems) {
             if (table.contains(item.card)) {
                 continue;
             }
             boolean playedByPlayer = oldHand.contains(item.card);
-            if (playerAttacker == null) {
+            if (tableWasEmpty && !playedByPlayer
+                    && item.card.equals(suggestedOpeningCard)) {
+                playedByPlayer = true;
+            }
+            if (tableWasEmpty && !playedByPlayer
+                    && unseenCards == 1 && handCountDecreased) {
+                // Fallback for a rare table misclassification: if exactly one
+                // card appeared while our visible hand lost a card, we opened.
+                playedByPlayer = true;
+            }
+            if (tableWasEmpty) {
+                // Re-observe the opener every bout instead of trusting a role
+                // carried through an animation that CV may have skipped.
                 playerAttacker = playedByPlayer;
+                suggestedOpeningCard = null;
             }
             boolean isAttack = playedByPlayer == playerAttacker;
             boolean transfer = !isAttack && !attacks.isEmpty() && defenses.isEmpty()
@@ -252,7 +279,6 @@ final class GameStateTracker {
         boolean previousPlayerAttacker = Boolean.TRUE.equals(playerAttacker);
         if (fullyDefended) {
             discard.addAll(table);
-            playerAttacker = !previousPlayerAttacker;
             rememberEvent(4, List.of(), previousPlayerAttacker);
         } else {
             if (previousPlayerAttacker) {
@@ -261,8 +287,6 @@ final class GameStateTracker {
             } else {
                 hand.addAll(table);
             }
-            // After a take the same attacker opens the next bout.
-            playerAttacker = previousPlayerAttacker;
             rememberEvent(5, List.of(), previousPlayerAttacker);
         }
         table.clear();
@@ -270,6 +294,9 @@ final class GameStateTracker {
         defenses.clear();
         absentTableFrames = 0;
         refillCounts(previousPlayerAttacker);
+        // Until the next physical opening card appears, show only a
+        // conditional suggestion. Its owner will establish the real role.
+        playerAttacker = null;
         awaitingRefreshedHand = true;
         refreshAge = 0;
         refreshCandidate = Set.of();
@@ -304,6 +331,10 @@ final class GameStateTracker {
 
     boolean initialized() {
         return initialized;
+    }
+
+    void rememberSuggestedOpening(String card) {
+        suggestedOpeningCard = card;
     }
 
     boolean readyForAdvice() {

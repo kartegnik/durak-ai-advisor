@@ -4,7 +4,7 @@ The Android client processes `MediaProjection` frames only in memory. It does
 not request Internet or storage permissions and does not write screenshots to
 disk.
 
-Current milestone (`0.3.1`):
+Current milestone (`0.3.2`):
 
 - asks for Android's screen-capture consent;
 - runs capture in a `mediaProjection` foreground service;
@@ -14,6 +14,9 @@ Current milestone (`0.3.1`):
   YOLO localizer and 36-class ensemble classifier;
 - remembers played, taken and discarded cards across frames and infers which
   side is attacking from the first card of each bout;
+- treats an empty-table recommendation as conditional and confirms the role
+  from the first card actually played, so a missed animation cannot keep the
+  sides reversed for the rest of the game;
 - generates only rule-legal moves for attack, defense and transfer Durak;
 - scores those moves on-device with the original v1 policy selected after
   real-game comparison; the v3 export remains available for experiments;

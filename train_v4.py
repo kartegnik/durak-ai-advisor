@@ -101,6 +101,7 @@ class League:
 def collect_belief_sequences(
     model: BeliefActorCritic,
     games: int,
+    v1_model,
     v2_model,
     v3_model,
     seed: int,
@@ -109,6 +110,7 @@ def collect_belief_sequences(
     opponents = (
         RandomController,
         HeuristicController,
+        lambda: V2Controller(v1_model),
         lambda: V2Controller(v2_model),
         lambda: RecurrentController(v3_model, deterministic=True),
     )
@@ -157,11 +159,14 @@ def evaluate_belief(model: BeliefActorCritic, sequences: list[list]) -> dict[str
     }
 
 
-def evaluate_suite(model, v2_model, v3_model, games_per_seat: int) -> dict[str, object]:
+def evaluate_suite(
+    model, v1_model, v2_model, v3_model, games_per_seat: int,
+) -> dict[str, object]:
     learner = lambda: RecurrentController(model, deterministic=True)
     opponents = {
         "random": (RandomController, 101_000),
         "heuristic": (HeuristicController, 102_000),
+        "v1": (lambda: V2Controller(v1_model), 102_500),
         "v2": (lambda: V2Controller(v2_model), 103_000),
         "v3": (lambda: RecurrentController(v3_model, deterministic=True), 104_000),
     }
@@ -170,10 +175,11 @@ def evaluate_suite(model, v2_model, v3_model, games_per_seat: int) -> dict[str, 
         for name, (factory, seed) in opponents.items()
     }
     composite = (
-        0.10 * results["random"]["points"]
-        + 0.15 * results["heuristic"]["points"]
-        + 0.15 * results["v2"]["points"]
-        + 0.60 * results["v3"]["points"]
+        0.05 * results["random"]["points"]
+        + 0.35 * results["heuristic"]["points"]
+        + 0.20 * results["v1"]["points"]
+        + 0.20 * results["v2"]["points"]
+        + 0.20 * results["v3"]["points"]
     )
     return {"composite": composite, **results}
 
@@ -181,7 +187,8 @@ def evaluate_suite(model, v2_model, v3_model, games_per_seat: int) -> dict[str, 
 def short_metrics(metrics: dict[str, object]) -> str:
     return " ".join(
         f"{name}={metrics[name]['points']:.1%}"
-        for name in ("random", "heuristic", "v2", "v3")
+        for name in ("random", "heuristic", "v1", "v2", "v3")
+        if name in metrics
     ) + f" composite={metrics['composite']:.1%}"
 
 
@@ -191,6 +198,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--base-v3", type=Path, default=Path("durak_model_v3.pt"))
     parser.add_argument("--base-belief", type=Path,
                         help="optional pretrained v4 belief checkpoint")
+    parser.add_argument("--v1-model", type=Path, default=Path("durak_model.pt"))
     parser.add_argument("--v2-model", type=Path, default=Path("durak_model_v2.pt"))
     parser.add_argument("--episodes", type=int, default=60_000)
     parser.add_argument("--batch-games", type=int, default=32)
@@ -221,6 +229,7 @@ def main() -> int:
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
+    v1_model = V2Controller.from_checkpoint(args.v1_model).model
     v2_model = V2Controller.from_checkpoint(args.v2_model).model
     v3_model, _ = load_v3(args.base_v3)
     episode = 0
@@ -245,7 +254,8 @@ def main() -> int:
             model.load_v3_state_dict(v3_model.state_dict())
         if args.belief_games > 0:
             sequences = collect_belief_sequences(
-                model, args.belief_games, v2_model, v3_model, args.seed + 10_000,
+                model, args.belief_games, v1_model, v2_model, v3_model,
+                args.seed + 10_000,
             )
             for name, parameter in model.named_parameters():
                 parameter.requires_grad_(name.startswith("belief_"))
@@ -263,7 +273,8 @@ def main() -> int:
         optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-5)
 
     validation_sequences = collect_belief_sequences(
-        model, args.belief_eval_games, v2_model, v3_model, args.seed + 900_000,
+        model, args.belief_eval_games, v1_model, v2_model, v3_model,
+        args.seed + 900_000,
     )
     belief_metrics = evaluate_belief(model, validation_sequences)
     print(
@@ -289,7 +300,9 @@ def main() -> int:
 
     if not best_metrics:
         model.eval()
-        best_metrics = evaluate_suite(model, v2_model, v3_model, args.eval_games)
+        best_metrics = evaluate_suite(
+            model, v1_model, v2_model, v3_model, args.eval_games,
+        )
         best_metrics["belief"] = belief_metrics
         print("Initial: " + short_metrics(best_metrics), flush=True)
         atomic_save(model_payload(model, optimizer, episode, update, best_metrics, args), best_path)
@@ -304,16 +317,19 @@ def main() -> int:
             learner = RecurrentController(model, deterministic=False, record=True)
             draw = random.random()
             entry = None
-            if draw < 0.10:
+            if draw < 0.08:
                 opponent = RandomController()
                 opponent_name = "random"
-            elif draw < 0.20:
+            elif draw < 0.36:
                 opponent = HeuristicController()
                 opponent_name = "heuristic"
-            elif draw < 0.35:
+            elif draw < 0.51:
+                opponent = V2Controller(v1_model)
+                opponent_name = "v1"
+            elif draw < 0.65:
                 opponent = V2Controller(v2_model)
                 opponent_name = "v2"
-            elif draw < 0.75:
+            elif draw < 0.85:
                 opponent = RecurrentController(v3_model, deterministic=False, temperature=0.85)
                 opponent_name = "v3"
             else:
@@ -366,9 +382,11 @@ def main() -> int:
             league.add(f"snapshot_{update}", model)
         if update % args.eval_every == 0:
             model.eval()
-            metrics = evaluate_suite(model, v2_model, v3_model, args.eval_games)
+            metrics = evaluate_suite(
+                model, v1_model, v2_model, v3_model, args.eval_games,
+            )
             validation_sequences = collect_belief_sequences(
-                model, args.belief_eval_games, v2_model, v3_model,
+                model, args.belief_eval_games, v1_model, v2_model, v3_model,
                 args.seed + 900_000,
             )
             metrics["belief"] = evaluate_belief(model, validation_sequences)

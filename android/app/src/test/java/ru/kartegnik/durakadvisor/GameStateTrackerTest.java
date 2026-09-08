@@ -24,7 +24,7 @@ public final class GameStateTrackerTest {
 
         tracker.observe(frame(remaining, new String[]{}));
         tracker.observe(frame(remaining, new String[]{}));
-        assertEquals(Boolean.FALSE, tracker.playerAttacker());
+        assertEquals(null, tracker.playerAttacker());
         assertEquals(2, tracker.discard().size());
         assertTrue(tracker.table().isEmpty());
         assertEquals(22, tracker.deckCount());
@@ -40,7 +40,7 @@ public final class GameStateTrackerTest {
 
         tracker.observe(frame(hand, new String[]{}));
         tracker.observe(frame(hand, new String[]{}));
-        assertEquals(Boolean.FALSE, tracker.playerAttacker());
+        assertEquals(null, tracker.playerAttacker());
         assertTrue(tracker.hand().contains("6D"));
         assertTrue(tracker.discard().isEmpty());
     }

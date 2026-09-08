@@ -8,10 +8,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.StringJoiner;
 
 import ai.onnxruntime.OrtException;
@@ -170,9 +168,6 @@ final class FrameAnalyzer {
         if (!tracker.readyForAdvice()) {
             return result + "\nСовет: жду раздачу карт…";
         }
-        if (!tracker.table().equals(visibleTableEvidence())) {
-            return result + "\nСовет: обновляю состояние стола…";
-        }
         DurakRules.Advice advice = DurakRules.legalActions(
                 tracker.hand(), tracker.attacks(), tracker.defenses(),
                 tracker.playerAttacker(), lockedSuit);
@@ -185,6 +180,12 @@ final class FrameAnalyzer {
         try {
             DurakPolicyAdvisor.Recommendation recommendation = policyAdvisor.recommend(
                     tracker, lockedSuit, advice.options);
+            if (tracker.playerAttacker() == null
+                    && tracker.attacks().isEmpty()
+                    && recommendation.type == 0
+                    && recommendation.card != null) {
+                tracker.rememberSuggestedOpening(recommendation.card);
+            }
             String prefix = tracker.playerAttacker() == null
                     ? "Если ваш ход (v1): " : "Совет v1: ";
             return result + "\n" + prefix + recommendation.action;
@@ -217,18 +218,6 @@ final class FrameAnalyzer {
             result.add(DurakRules.displayCard(card.card) + (uncertain ? "?" : ""));
         }
         return result.toString();
-    }
-
-    private Set<String> visibleTableEvidence() {
-        Set<String> result = new HashSet<>();
-        for (CardRecognizer.DetectedCard card : detectedCards) {
-            if (card.zone == CardRecognizer.Zone.TABLE
-                    && card.classConfidence >= 0.40f
-                    && card.boxConfidence >= 0.20f) {
-                result.add(card.card);
-            }
-        }
-        return result;
     }
 
     private static String suitName(String suit) {

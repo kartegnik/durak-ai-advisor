@@ -23,10 +23,14 @@ final class DurakPolicyAdvisor implements AutoCloseable {
     static final class Recommendation {
         final String action;
         final float score;
+        final int type;
+        final String card;
 
-        Recommendation(String action, float score) {
+        Recommendation(String action, float score, int type, String card) {
             this.action = action;
             this.score = score;
+            this.type = type;
+            this.card = card;
         }
     }
 
@@ -73,8 +77,9 @@ final class DurakPolicyAdvisor implements AutoCloseable {
             float[] scores = (float[]) result.get(0).getValue();
             int selected = maximumIndex(scores);
             lastSignature = signature;
+            DurakRules.MoveOption choice = options.get(selected);
             lastRecommendation = new Recommendation(
-                    options.get(selected).display, scores[selected]);
+                    choice.display, scores[selected], choice.type, choice.card);
             return lastRecommendation;
         }
     }
