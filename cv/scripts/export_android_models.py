@@ -22,7 +22,8 @@ if str(PROJECT) not in sys.path:
 from card_crop_classifier import CLASS_NAMES, load_card_classifier
 from durak_v3.model import RecurrentActorCritic
 from durak_v3.observation import OBSERVATION_DIM
-from state import OPTION_DIM
+from model import DurakNet
+from state import COMBINED_DIM, OPTION_DIM
 
 
 class PolicyStep(torch.nn.Module):
@@ -77,7 +78,26 @@ def export_classifier(source: Path, target: Path) -> None:
     )
 
 
-def export_policy(source: Path, target: Path) -> int:
+def export_v1_policy(source: Path, target: Path) -> None:
+    """Export the original 5,000-episode policy with transfer compatibility."""
+    saved = torch.load(source, map_location="cpu", weights_only=True)
+    model = DurakNet()
+    model.load_compatible_state_dict(saved.get("model", saved))
+    example = torch.zeros((2, COMBINED_DIM), dtype=torch.float32)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    torch.onnx.export(
+        model.eval(),
+        example,
+        target,
+        input_names=("combined",),
+        output_names=("scores",),
+        dynamic_axes={"combined": {0: "options"}, "scores": {0: "options"}},
+        opset_version=17,
+        dynamo=False,
+    )
+
+
+def export_v3_policy(source: Path, target: Path) -> int:
     saved = torch.load(source, map_location="cpu", weights_only=True)
     model = RecurrentActorCritic(**saved.get("model_config", {}))
     model.load_state_dict(saved["model"])
@@ -119,7 +139,11 @@ def main() -> None:
         default=project / "cv/models/card_crop_classifier_v10.pt",
     )
     parser.add_argument(
-        "--policy", type=Path,
+        "--policy-v1", type=Path,
+        default=project / "durak_model.pt",
+    )
+    parser.add_argument(
+        "--policy-v3", type=Path,
         default=project / "durak_model_v3.pt",
     )
     parser.add_argument(
@@ -130,10 +154,12 @@ def main() -> None:
 
     localizer = args.output / "card_localizer.onnx"
     classifier = args.output / "card_classifier.onnx"
-    policy = args.output / "durak_policy_v3.onnx"
+    policy_v1 = args.output / "durak_policy_v1.onnx"
+    policy_v3 = args.output / "durak_policy_v3.onnx"
     export_localizer(args.localizer, localizer)
     export_classifier(args.classifier, classifier)
-    policy_hidden_size = export_policy(args.policy, policy)
+    export_v1_policy(args.policy_v1, policy_v1)
+    policy_hidden_size = export_v3_policy(args.policy_v3, policy_v3)
 
     localizer_shapes = verify_model(localizer, {
         "images": np.zeros((1, 3, 416, 416), dtype=np.float32),
@@ -141,7 +167,10 @@ def main() -> None:
     classifier_shapes = verify_model(classifier, {
         "cards": np.zeros((2, 3, 96, 64), dtype=np.float32),
     })
-    policy_shapes = verify_model(policy, {
+    policy_v1_shapes = verify_model(policy_v1, {
+        "combined": np.zeros((2, COMBINED_DIM), dtype=np.float32),
+    })
+    policy_v3_shapes = verify_model(policy_v3, {
         "observation": np.zeros(OBSERVATION_DIM, dtype=np.float32),
         "options": np.zeros((2, OPTION_DIM), dtype=np.float32),
         "hidden": np.zeros(policy_hidden_size, dtype=np.float32),
@@ -150,12 +179,15 @@ def main() -> None:
         raise ValueError(f"unexpected localizer output: {localizer_shapes}")
     if classifier_shapes != ((2, len(CLASS_NAMES)),):
         raise ValueError(f"unexpected classifier output: {classifier_shapes}")
-    if policy_shapes != ((2,), (policy_hidden_size,)):
-        raise ValueError(f"unexpected policy output: {policy_shapes}")
+    if policy_v1_shapes != ((2,),):
+        raise ValueError(f"unexpected v1 policy output: {policy_v1_shapes}")
+    if policy_v3_shapes != ((2,), (policy_hidden_size,)):
+        raise ValueError(f"unexpected v3 policy output: {policy_v3_shapes}")
 
     print(f"Exported {localizer.relative_to(project)} ({localizer.stat().st_size} bytes)")
     print(f"Exported {classifier.relative_to(project)} ({classifier.stat().st_size} bytes)")
-    print(f"Exported {policy.relative_to(project)} ({policy.stat().st_size} bytes)")
+    print(f"Exported {policy_v1.relative_to(project)} ({policy_v1.stat().st_size} bytes)")
+    print(f"Exported {policy_v3.relative_to(project)} ({policy_v3.stat().st_size} bytes)")
 
 
 if __name__ == "__main__":

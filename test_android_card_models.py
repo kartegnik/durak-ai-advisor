@@ -33,7 +33,18 @@ class AndroidCardModelsTest(unittest.TestCase):
         self.assertEqual(output.shape, (2, 36))
         self.assertTrue(np.isfinite(output).all())
 
-    def test_policy_asset_accepts_dynamic_options(self):
+    def test_v1_policy_asset_accepts_dynamic_options(self):
+        session = ort.InferenceSession(
+            MODELS / "durak_policy_v1.onnx", providers=("CPUExecutionProvider",),
+        )
+        self.assertEqual(session.get_inputs()[0].name, "combined")
+        scores = session.run(None, {
+            "combined": np.zeros((3, 193), dtype=np.float32),
+        })[0]
+        self.assertEqual(scores.shape, (3,))
+        self.assertTrue(np.isfinite(scores).all())
+
+    def test_v3_policy_asset_accepts_dynamic_options(self):
         session = ort.InferenceSession(
             MODELS / "durak_policy_v3.onnx", providers=("CPUExecutionProvider",),
         )

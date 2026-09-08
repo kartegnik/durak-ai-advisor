@@ -59,6 +59,22 @@ public final class GameStateTrackerTest {
         assertEquals(Integer.valueOf(6), tracker.lastEventKind());
     }
 
+    @Test
+    public void disjointVisibleTableStartsTheNextBoutImmediately() {
+        GameStateTracker tracker = initializedTracker();
+        String[] remaining = {"7C", "8D", "9S", "10H", "AC"};
+        tracker.observe(frame(remaining, new String[]{"6H"}));
+        tracker.observe(frame(remaining, new String[]{"6H", "7H"}));
+
+        tracker.observe(frame(remaining, new String[]{"6D"}));
+
+        assertEquals(List.of("6D"), tracker.attacks());
+        assertTrue(tracker.defenses().isEmpty());
+        assertEquals(Boolean.FALSE, tracker.playerAttacker());
+        assertTrue(tracker.discard().contains("6H"));
+        assertTrue(tracker.discard().contains("7H"));
+    }
+
     private static GameStateTracker initializedTracker() {
         GameStateTracker tracker = new GameStateTracker();
         String[] initial = {"6H", "7C", "8D", "9S", "10H", "AC"};

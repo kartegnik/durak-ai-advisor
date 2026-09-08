@@ -55,7 +55,6 @@ final class GameStateTracker {
     private int refreshCandidateFrames;
     private int refreshAge;
     private int absentTableFrames;
-    private int disjointTableFrames;
     private boolean initialized;
     private boolean awaitingRefreshedHand;
     private Boolean playerAttacker;
@@ -80,7 +79,6 @@ final class GameStateTracker {
         refreshCandidateFrames = 0;
         refreshAge = 0;
         absentTableFrames = 0;
-        disjointTableFrames = 0;
         initialized = false;
         awaitingRefreshedHand = false;
         playerAttacker = null;
@@ -125,26 +123,29 @@ final class GameStateTracker {
             overlap.retainAll(table);
             if (visibleTable.isEmpty()) {
                 absentTableFrames++;
-                disjointTableFrames = 0;
                 if (absentTableFrames >= 2) {
                     settleBout();
                 }
             } else if (overlap.isEmpty()) {
-                disjointTableFrames++;
+                // The previous implementation waited for a second disjoint
+                // frame. During that delay the overlay could recommend a move
+                // for the previous bout while already displaying the new
+                // table. A completely different non-empty table is stronger
+                // evidence than a transient empty detector frame, so switch
+                // bouts immediately and process the visible opening card.
+                settleBout();
                 absentTableFrames = 0;
-                if (disjointTableFrames >= 2) {
-                    settleBout();
-                } else {
-                    observeHand(visibleHand);
-                    return;
-                }
             } else {
                 absentTableFrames = 0;
-                disjointTableFrames = 0;
             }
         }
 
         processNewTableCards(visibleTableItems);
+        // Card identities are unique in a 36-card deck. Even if a table card
+        // was already remembered before this frame, it can no longer remain
+        // in our hand. Keeping this invariant prevents stale suggestions such
+        // as transferring with the same card already visible on the table.
+        hand.removeAll(table);
         observeHand(visibleHand);
     }
 
@@ -268,7 +269,6 @@ final class GameStateTracker {
         attacks.clear();
         defenses.clear();
         absentTableFrames = 0;
-        disjointTableFrames = 0;
         refillCounts(previousPlayerAttacker);
         awaitingRefreshedHand = true;
         refreshAge = 0;

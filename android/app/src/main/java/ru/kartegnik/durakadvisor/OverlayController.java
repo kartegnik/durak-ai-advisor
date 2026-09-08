@@ -8,6 +8,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.widget.LinearLayout;
@@ -24,6 +25,7 @@ final class OverlayController {
     private LinearLayout view;
     private TextView statusView;
     private LinearLayout controlsView;
+    private LinearLayout suitChoicesView;
 
     OverlayController(Context context, Runnable resetAction, Consumer<String> suitAction) {
         this.context = context;
@@ -41,6 +43,14 @@ final class OverlayController {
             if (view != null) {
                 windowManager.removeView(view);
                 view = null;
+            }
+        });
+    }
+
+    void showSuitChoices() {
+        mainHandler.post(() -> {
+            if (suitChoicesView != null) {
+                suitChoicesView.setVisibility(View.VISIBLE);
             }
         });
     }
@@ -79,6 +89,13 @@ final class OverlayController {
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT));
 
+            suitChoicesView = new LinearLayout(context);
+            suitChoicesView.setOrientation(LinearLayout.HORIZONTAL);
+            suitChoicesView.setGravity(Gravity.CENTER);
+            controlsView.addView(suitChoicesView, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT));
+
             addSuitButton("♥", "H", 0xffff7a7a, "Черви");
             addSuitButton("♦", "D", 0xffff7a7a, "Бубны");
             addSuitButton("♣", "C", Color.WHITE, "Крести");
@@ -107,8 +124,11 @@ final class OverlayController {
     private void addSuitButton(String symbol, String suit, int color, String description) {
         TextView button = actionView(symbol, color);
         button.setContentDescription("Выбрать козырь: " + description);
-        button.setOnClickListener(ignored -> suitAction.accept(suit));
-        controlsView.addView(button);
+        button.setOnClickListener(ignored -> {
+            suitChoicesView.setVisibility(View.GONE);
+            suitAction.accept(suit);
+        });
+        suitChoicesView.addView(button);
     }
 
     private TextView actionView(String text, int color) {

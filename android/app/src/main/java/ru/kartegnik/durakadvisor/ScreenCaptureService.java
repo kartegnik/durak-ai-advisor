@@ -106,6 +106,7 @@ public final class ScreenCaptureService extends Service {
         handler.post(() -> {
             analyzer.reset();
             lastFrameAt = 0L;
+            overlay.showSuitChoices();
             overlay.show("Ищу козырную карту…");
         });
     }
