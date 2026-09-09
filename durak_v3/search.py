@@ -189,10 +189,22 @@ class InformationSetMCTS:
         self, root: SearchRoot, root_options,
         root_hidden: torch.Tensor | None = None,
         opponent_weights=None,
+        root_noise_fraction: float = 0.0,
+        root_dirichlet_alpha: float = 0.3,
     ) -> SearchResult:
         tree: dict[tuple, Node] = {}
         deadline = time.monotonic() + self.time_limit_ms / 1000.0
         root_keys = [action_key(move) for move in root_options]
+        root_noise: dict[tuple, float] = {}
+        if root_noise_fraction > 0.0 and root_keys:
+            samples = [
+                self.rng.gammavariate(root_dirichlet_alpha, 1.0)
+                for _ in root_keys
+            ]
+            total = sum(samples)
+            root_noise = {
+                key: sample / total for key, sample in zip(root_keys, samples)
+            }
         completed = 0
         with torch.no_grad():
             while completed < self.simulations and time.monotonic() < deadline:
@@ -224,7 +236,13 @@ class InformationSetMCTS:
                     is_new_node = node_key not in tree
                     node = tree.setdefault(node_key, Node())
                     for move, prior in zip(options, priors):
-                        node.edges.setdefault(action_key(move), Edge(prior))
+                        key = action_key(move)
+                        if depth == 0 and root_noise:
+                            prior = (
+                                (1.0 - root_noise_fraction) * prior
+                                + root_noise_fraction * root_noise[key]
+                            )
+                        node.edges.setdefault(key, Edge(prior))
                     if is_new_node and path:
                         # Evaluate the state reached by the preceding action.
                         leaf_value = float(value.item()) * (1.0 if seat == 1 else -1.0)
