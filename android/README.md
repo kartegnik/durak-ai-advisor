@@ -4,12 +4,12 @@ The Android client processes `MediaProjection` frames only in memory. It does
 not request Internet or storage permissions and does not write screenshots to
 disk.
 
-Current milestone (`0.4.0`):
+Current milestone (`0.4.1`):
 
 - asks for Android's screen-capture consent;
 - runs capture in a `mediaProjection` foreground service;
-- shows an overlay above the game with manual suit buttons and automatic retry;
-- recognizes and locks the trump suit after two matching frames;
+- shows an overlay above the game with manual trump-suit buttons;
+- requires the player to select the trump, avoiding false automatic club locks;
 - recognizes cards in the player's hand and on the table with the exported
   YOLO localizer and 36-class ensemble classifier;
 - remembers played, taken and discarded cards across frames and infers which
@@ -18,6 +18,8 @@ Current milestone (`0.4.0`):
   from the first card actually played, so a missed animation cannot keep the
   sides reversed for the rest of the game;
 - generates only rule-legal moves for attack, defense and transfer Durak;
+- limits suggested cards to the currently recognized hand and repairs a missed
+  defense when the observed table could not legally consist only of attacks;
 - scores those moves on-device with recurrent PPO v4, whose separate memory
   predicts hidden-card ownership and influences its move selection;
 - tries the complete screen plus top-aligned and centered reference-aspect

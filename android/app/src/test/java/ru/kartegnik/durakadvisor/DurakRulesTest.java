@@ -39,6 +39,14 @@ public final class DurakRulesTest {
     }
 
     @Test
+    public void impossibleMixedAttackRanksNeverOfferTransfer() {
+        DurakRules.Advice advice = DurakRules.legalActions(
+                Set.of("10S", "AD"), List.of("9H", "10D"), List.of(), false, "C");
+
+        assertFalse(advice.options.stream().anyMatch(option -> option.type == 6));
+    }
+
+    @Test
     public void attackerCanPassOnlyAfterAllCardsAreBeaten() {
         DurakRules.Advice waiting = DurakRules.legalActions(
                 Set.of("8C"), List.of("7D"), List.of(), true, "S");

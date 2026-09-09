@@ -5,31 +5,25 @@ import android.graphics.Bitmap;
 import android.os.SystemClock;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.StringJoiner;
 
 import ai.onnxruntime.OrtException;
 
 final class FrameAnalyzer {
     private static final int MAX_ANALYSIS_WIDTH = 576;
-    private static final double MIN_LOCK_CONFIDENCE = 0.65;
     private static final long CARD_ANALYSIS_INTERVAL_MS = 500L;
 
     interface Listener {
         void onText(String text);
     }
 
-    private final TrumpSuitMatcher matcher;
     private final CardRecognizer cardRecognizer;
     private final DurakPolicyAdvisor policyAdvisor;
     private final GameStateTracker tracker = new GameStateTracker();
     private final Listener listener;
-    private String candidate;
-    private int candidateFrames;
     private String lockedSuit;
     private List<CardRecognizer.DetectedCard> detectedCards = List.of();
     private long lastCardAnalysisAt;
@@ -38,9 +32,6 @@ final class FrameAnalyzer {
 
     FrameAnalyzer(Context context, Listener listener) throws IOException {
         this.listener = listener;
-        try (InputStream stream = context.getAssets().open("trump_suit_templates.bin")) {
-            matcher = new TrumpSuitMatcher(stream);
-        }
         cardRecognizer = new CardRecognizer(context);
         policyAdvisor = new DurakPolicyAdvisor(context);
     }
@@ -60,12 +51,6 @@ final class FrameAnalyzer {
         if (analysis != bitmap) {
             analysis.recycle();
         }
-        TrumpSuitMatcher.Detection trumpDetection = null;
-        if (lockedSuit == null) {
-            trumpDetection = matcher.detect(pixels, width, height);
-            updateTrump(trumpDetection);
-        }
-
         long now = SystemClock.elapsedRealtime();
         if (!cardRecognizerFailed
                 && now - lastCardAnalysisAt >= CARD_ANALYSIS_INTERVAL_MS) {
@@ -89,34 +74,10 @@ final class FrameAnalyzer {
                 detectedCards = List.of();
             }
         }
-        listener.onText(displayText(trumpDetection));
-    }
-
-    private void updateTrump(TrumpSuitMatcher.Detection detection) {
-        boolean reliable = detection.cardPresent
-                && detection.suit != null
-                && detection.confidence >= MIN_LOCK_CONFIDENCE;
-        if (reliable) {
-            if (detection.suit.equals(candidate)) {
-                candidateFrames++;
-            } else {
-                candidate = detection.suit;
-                candidateFrames = 1;
-            }
-            if (candidateFrames >= 2) {
-                lockedSuit = candidate;
-            }
-        } else {
-            // Matching observations must be consecutive. A missing or weak
-            // card between them means that dealing has not settled yet.
-            candidate = null;
-            candidateFrames = 0;
-        }
+        listener.onText(displayText());
     }
 
     void reset() {
-        candidate = null;
-        candidateFrames = 0;
         lockedSuit = null;
         tracker.reset();
         policyAdvisor.reset();
@@ -128,10 +89,9 @@ final class FrameAnalyzer {
         if (!List.of("H", "D", "C", "S").contains(suit)) {
             throw new IllegalArgumentException("Unsupported suit: " + suit);
         }
-        candidate = null;
-        candidateFrames = 0;
         lockedSuit = suit;
-        listener.onText(displayText(null));
+        tracker.setTrumpSuit(suit);
+        listener.onText(displayText());
     }
 
     void close() {
@@ -139,16 +99,12 @@ final class FrameAnalyzer {
         policyAdvisor.close();
     }
 
-    private String displayText(TrumpSuitMatcher.Detection detection) {
+    private String displayText() {
         String trumpText;
         if (lockedSuit != null) {
             trumpText = "Козырь: " + suitName(lockedSuit);
-        } else if (detection != null && detection.suit != null) {
-            trumpText = String.format(
-                    Locale.US, "Проверяю: %s %.0f%%",
-                    suitName(detection.suit), detection.confidence * 100.0);
         } else {
-            trumpText = "Ищу козырь…";
+            trumpText = "Выберите козырь кнопкой";
         }
         if (cardRecognizerFailed) {
             return trumpText + "\nКарты: ошибка модели";
@@ -168,8 +124,14 @@ final class FrameAnalyzer {
         if (!tracker.readyForAdvice()) {
             return result + "\nСовет: жду раздачу карт…";
         }
+        if (tracker.visibleHand().isEmpty()) {
+            return result + "\nСовет: жду карты в руке…";
+        }
+        // Only physically visible cards may become move options. The tracker
+        // still remembers overlapped cards for belief state, but a stale
+        // memory can no longer produce an impossible suggestion.
         DurakRules.Advice advice = DurakRules.legalActions(
-                tracker.hand(), tracker.attacks(), tracker.defenses(),
+                tracker.visibleHand(), tracker.attacks(), tracker.defenses(),
                 tracker.playerAttacker(), lockedSuit);
         if (advice.options.isEmpty()) {
             return result + "\nСовет: " + advice.note;

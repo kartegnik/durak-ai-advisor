@@ -66,6 +66,7 @@ final class GameStateTracker {
     private List<String> lastEventCards = List.of();
     private Boolean lastEventActorSelf;
     private String suggestedOpeningCard;
+    private String trumpSuit;
 
     void reset() {
         hand.clear();
@@ -92,6 +93,7 @@ final class GameStateTracker {
         lastEventCards = List.of();
         lastEventActorSelf = null;
         suggestedOpeningCard = null;
+        trumpSuit = null;
     }
 
     void observe(List<ObservedCard> observed) {
@@ -148,6 +150,7 @@ final class GameStateTracker {
         }
 
         processNewTableCards(visibleTableItems, handCountDecreased);
+        repairImpossibleAttackOnlyTable();
         // Card identities are unique in a 36-card deck. Even if a table card
         // was already remembered before this frame, it can no longer remain
         // in our hand. Keeping this invariant prevents stale suggestions such
@@ -231,6 +234,40 @@ final class GameStateTracker {
                     transfer ? 6 : isAttack && tableWasEmpty ? 0 : isAttack ? 1 : 2,
                     List.of(item.card), playedByPlayer);
             tableWasEmpty = false;
+        }
+    }
+
+    /**
+     * Recover a missed defense from a table that cannot legally contain only
+     * attacks. An attack of a new rank is possible only after that rank first
+     * appeared as a defense. This happens in practice when the defender's card
+     * was not recognized in their hand before it appeared on the table.
+     */
+    private void repairImpossibleAttackOnlyTable() {
+        if (trumpSuit == null || !defenses.isEmpty() || attacks.size() < 2) {
+            return;
+        }
+        String opening = attacks.get(0);
+        for (int index = 1; index < attacks.size(); index++) {
+            String candidate = attacks.get(index);
+            if (!rank(candidate).equals(rank(opening))
+                    && DurakRules.beats(candidate, opening, trumpSuit)) {
+                attacks.remove(index);
+                defenses.add(candidate);
+                if (Boolean.FALSE.equals(playerAttacker)) {
+                    // It was first counted as an opponent attack, but the
+                    // repaired card was actually played by us in defense.
+                    opponentCount++;
+                } else if (Boolean.TRUE.equals(playerAttacker)) {
+                    // Symmetric correction if a stale hand identity made an
+                    // opponent defense look like our attack.
+                    opponentCount = Math.max(0, opponentCount - 1);
+                    knownOpponent.remove(candidate);
+                }
+                rememberEvent(
+                        2, List.of(candidate), !Boolean.TRUE.equals(playerAttacker));
+                return;
+            }
         }
     }
 
@@ -337,12 +374,22 @@ final class GameStateTracker {
         suggestedOpeningCard = card;
     }
 
+    void setTrumpSuit(String suit) {
+        // DurakRules performs the shared validation and suit-order mapping.
+        DurakRules.suitIndex(suit);
+        trumpSuit = suit;
+    }
+
     boolean readyForAdvice() {
         return initialized && !awaitingRefreshedHand;
     }
 
     Set<String> hand() {
         return Set.copyOf(hand);
+    }
+
+    Set<String> visibleHand() {
+        return Set.copyOf(lastVisibleHand);
     }
 
     Set<String> table() {

@@ -107,7 +107,7 @@ public final class ScreenCaptureService extends Service {
             analyzer.reset();
             lastFrameAt = 0L;
             overlay.showSuitChoices();
-            overlay.show("Ищу козырную карту…");
+            overlay.show("Выберите козырь кнопкой масти");
         });
     }
 
@@ -196,7 +196,7 @@ public final class ScreenCaptureService extends Service {
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
                 imageReader.getSurface(), null, captureHandler);
         running = true;
-        overlay.show("Ищу козырную карту…");
+        overlay.show("Выберите козырь кнопкой масти");
     }
 
     private ImageReader createImageReader(int width, int height) {

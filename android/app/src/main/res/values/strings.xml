@@ -2,14 +2,14 @@
     <string name="app_name">Durak AI Advisor</string>
     <string name="title">Помощник для Дурака</string>
     <string name="description">Приложение анализирует экран только в памяти телефона. Кадры не сохраняются и не отправляются в интернет.</string>
-    <string name="milestone">Текущий этап: определение козыря, карт в руке и карт на столе поверх игры.</string>
+    <string name="milestone">Текущий этап: ручной выбор козыря, распознавание карт и нейросетевая подсказка поверх игры.</string>
     <string name="status_stopped">Анализ остановлен</string>
     <string name="status_ready">Можно запускать анализ</string>
     <string name="status_running">Анализ экрана запущен</string>
-    <string name="status_restarted">Поиск козыря запущен заново</string>
+    <string name="status_restarted">Состояние партии сброшено — выберите козырь</string>
     <string name="status_overlay_required">Сначала разрешите показ поверх других приложений</string>
     <string name="grant_overlay">1. Разрешить подсказку поверх игры</string>
     <string name="start_capture">2. Начать анализ экрана</string>
-    <string name="reset_capture">Перезапустить поиск козыря</string>
+    <string name="reset_capture">Начать новую партию</string>
     <string name="stop_capture">Остановить анализ</string>
 </resources>

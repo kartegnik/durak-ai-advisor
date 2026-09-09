@@ -75,6 +75,44 @@ public final class GameStateTrackerTest {
         assertTrue(tracker.discard().contains("7H"));
     }
 
+    @Test
+    public void visibleHandDoesNotExposeRememberedMissingCardAsPlayable() {
+        GameStateTracker tracker = initializedTracker();
+        String[] visible = {"6H", "7C", "8D", "9S", "AC"};
+
+        tracker.observe(frame(visible, new String[]{"6D"}));
+
+        assertTrue(tracker.hand().contains("10H"));
+        assertFalse(tracker.visibleHand().contains("10H"));
+        assertEquals(5, tracker.visibleHand().size());
+    }
+
+    @Test
+    public void differentRankBeatingCardRepairsMissedDefense() {
+        GameStateTracker tracker = initializedTracker();
+        tracker.setTrumpSuit("C");
+        String[] hand = {"6H", "7C", "8D", "9S", "10H", "AC"};
+        tracker.observe(frame(hand, new String[]{"QH"}));
+        tracker.observe(frame(hand, new String[]{"QH", "KH"}));
+
+        assertEquals(List.of("QH"), tracker.attacks());
+        assertEquals(List.of("KH"), tracker.defenses());
+    }
+
+    @Test
+    public void repairSelectsActualBeatingCardBeforeSameRankThrowIn() {
+        GameStateTracker tracker = initializedTracker();
+        tracker.setTrumpSuit("C");
+        String[] hand = {"6H", "7C", "8D", "9S", "AC"};
+        tracker.observe(frame(hand, new String[]{"QH"}));
+        // KD is deliberately processed first. It cannot beat QH, while KH
+        // must be the defense that made a later rank-K throw-in legal.
+        tracker.observe(frame(hand, new String[]{"QH", "KD", "KH"}));
+
+        assertEquals(List.of("QH", "KD"), tracker.attacks());
+        assertEquals(List.of("KH"), tracker.defenses());
+    }
+
     private static GameStateTracker initializedTracker() {
         GameStateTracker tracker = new GameStateTracker();
         String[] initial = {"6H", "7C", "8D", "9S", "10H", "AC"};

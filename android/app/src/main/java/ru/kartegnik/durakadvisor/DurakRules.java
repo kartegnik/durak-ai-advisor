@@ -107,7 +107,7 @@ final class DurakRules {
                         "отбить " + displayCard(attack) + " картой " + displayCard(card)));
             }
         }
-        if (defenses.isEmpty()) {
+        if (defenses.isEmpty() && allAttackRanksEqual(attacks)) {
             for (String card : sortedHand) {
                 if (rank(card).equals(rank(attack))) {
                     options.add(new MoveOption(
@@ -117,6 +117,16 @@ final class DurakRules {
         }
         options.add(new MoveOption(3, null, "взять"));
         return new Advice(options, "");
+    }
+
+    private static boolean allAttackRanksEqual(List<String> attacks) {
+        String first = rank(attacks.get(0));
+        for (String attack : attacks) {
+            if (!rank(attack).equals(first)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     static boolean beats(String card, String attack, String trump) {

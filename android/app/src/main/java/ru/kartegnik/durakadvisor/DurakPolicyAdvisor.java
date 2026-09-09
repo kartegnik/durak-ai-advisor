@@ -124,15 +124,18 @@ final class DurakPolicyAdvisor implements AutoCloseable {
 
     private static float[] encodeObservation(GameStateTracker tracker, String trump) {
         float[] result = new float[OBSERVATION_SIZE];
+        // Advice is restricted to the currently observed hand, so the model
+        // must score it from the same hand instead of stale remembered cards.
+        Iterable<String> currentHand = tracker.visibleHand();
         int offset = 0;
-        offset = putCards(result, offset, tracker.hand());
+        offset = putCards(result, offset, currentHand);
         offset = putCards(result, offset, tracker.attacks());
         offset = putCards(result, offset, tracker.defenses());
         offset = putCards(result, offset, tracker.discard());
         offset = putCards(result, offset, tracker.knownOpponent());
 
         boolean[] visible = new boolean[DurakRules.CARD_COUNT];
-        mark(visible, tracker.hand());
+        mark(visible, currentHand);
         mark(visible, tracker.attacks());
         mark(visible, tracker.defenses());
         mark(visible, tracker.discard());
@@ -149,7 +152,7 @@ final class DurakPolicyAdvisor implements AutoCloseable {
         result[offset++] = 0.0f;
 
         result[offset++] = Math.min(24, tracker.deckCount()) / 24.0f;
-        result[offset++] = tracker.hand().size() / 36.0f;
+        result[offset++] = tracker.visibleHand().size() / 36.0f;
         result[offset++] = tracker.opponentCount() / 36.0f;
         result[offset++] = tracker.attacks().size() / 6.0f;
         result[offset++] = tracker.defenses().size() / 6.0f;
@@ -205,13 +208,16 @@ final class DurakPolicyAdvisor implements AutoCloseable {
     private static String signature(
             GameStateTracker tracker, String trump, List<DurakRules.MoveOption> options) {
         List<String> hand = new ArrayList<>(tracker.hand());
+        List<String> visibleHand = new ArrayList<>(tracker.visibleHand());
         List<String> discard = new ArrayList<>(tracker.discard());
         List<String> opponent = new ArrayList<>(tracker.knownOpponent());
         Collections.sort(hand);
+        Collections.sort(visibleHand);
         Collections.sort(discard);
         Collections.sort(opponent);
         StringBuilder result = new StringBuilder();
-        result.append(hand).append('|').append(tracker.attacks()).append('|')
+        result.append(hand).append('|').append(visibleHand).append('|')
+                .append(tracker.attacks()).append('|')
                 .append(tracker.defenses()).append('|').append(discard).append('|')
                 .append(opponent).append('|').append(trump).append('|')
                 .append(tracker.deckCount()).append('|').append(tracker.opponentCount())
