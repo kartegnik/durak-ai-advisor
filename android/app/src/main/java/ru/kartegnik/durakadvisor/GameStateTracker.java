@@ -124,9 +124,6 @@ final class GameStateTracker {
             }
         }
 
-        boolean handCountDecreased = !lastVisibleHand.isEmpty()
-                && visibleHand.size() < lastVisibleHand.size();
-
         if (!table.isEmpty()) {
             Set<String> overlap = new HashSet<>(visibleTable);
             overlap.retainAll(table);
@@ -149,7 +146,7 @@ final class GameStateTracker {
             }
         }
 
-        processNewTableCards(visibleTableItems, handCountDecreased);
+        processNewTableCards(visibleTableItems, visibleHand);
         repairImpossibleAttackOnlyTable();
         // Card identities are unique in a 36-card deck. Even if a table card
         // was already remembered before this frame, it can no longer remain
@@ -179,9 +176,11 @@ final class GameStateTracker {
     }
 
     private void processNewTableCards(
-            List<ObservedCard> visibleTableItems, boolean handCountDecreased) {
+            List<ObservedCard> visibleTableItems, Set<String> visibleHand) {
         Set<String> oldHand = new HashSet<>(hand);
         oldHand.addAll(lastVisibleHand);
+        Set<String> missingVisibleCards = new HashSet<>(lastVisibleHand);
+        missingVisibleCards.removeAll(visibleHand);
         boolean tableWasEmpty = table.isEmpty();
         int unseenCards = 0;
         for (ObservedCard item : visibleTableItems) {
@@ -197,10 +196,11 @@ final class GameStateTracker {
                 playedByPlayer = true;
             }
             if (tableWasEmpty && !playedByPlayer
-                    && unseenCards == 1 && handCountDecreased) {
-                // Fallback for a rare table misclassification: if exactly one
-                // card appeared while our visible hand lost a card, we opened.
-                playedByPlayer = true;
+                    && unseenCards == 1 && missingVisibleCards.size() == 1) {
+                // Allow a suit misclassification between the hand and table,
+                // but do not treat an unrelated detector miss as our move.
+                String missing = missingVisibleCards.iterator().next();
+                playedByPlayer = rank(missing).equals(rank(item.card));
             }
             if (tableWasEmpty) {
                 // Re-observe the opener every bout instead of trusting a role

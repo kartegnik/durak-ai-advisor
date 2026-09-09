@@ -113,6 +113,17 @@ public final class GameStateTrackerTest {
         assertEquals(List.of("KH"), tracker.defenses());
     }
 
+    @Test
+    public void unrelatedMissingHandCardDoesNotMakeOpponentOpeningOurs() {
+        GameStateTracker tracker = initializedTracker();
+        String[] oneTemporarilyMissed = {"6H", "7C", "8D", "9S", "AC"};
+
+        tracker.observe(frame(oneTemporarilyMissed, new String[]{"QH"}));
+
+        assertEquals(Boolean.FALSE, tracker.playerAttacker());
+        assertEquals(List.of("QH"), tracker.attacks());
+    }
+
     private static GameStateTracker initializedTracker() {
         GameStateTracker tracker = new GameStateTracker();
         String[] initial = {"6H", "7C", "8D", "9S", "10H", "AC"};
