@@ -187,7 +187,7 @@ final class FrameAnalyzer {
                 tracker.rememberSuggestedOpening(recommendation.card);
             }
             String prefix = tracker.playerAttacker() == null
-                    ? "Если ваш ход (v1): " : "Совет v1: ";
+                    ? "Если ваш ход (v4): " : "Совет v4: ";
             return result + "\n" + prefix + recommendation.action;
         } catch (OrtException | RuntimeException error) {
             policyFailed = true;

@@ -4,7 +4,7 @@ The Android client processes `MediaProjection` frames only in memory. It does
 not request Internet or storage permissions and does not write screenshots to
 disk.
 
-Current milestone (`0.3.2`):
+Current milestone (`0.4.0`):
 
 - asks for Android's screen-capture consent;
 - runs capture in a `mediaProjection` foreground service;
@@ -18,8 +18,8 @@ Current milestone (`0.3.2`):
   from the first card actually played, so a missed animation cannot keep the
   sides reversed for the rest of the game;
 - generates only rule-legal moves for attack, defense and transfer Durak;
-- scores those moves on-device with the original v1 policy selected after
-  real-game comparison; the v3 export remains available for experiments;
+- scores those moves on-device with recurrent PPO v4, whose separate memory
+  predicts hidden-card ownership and influences its move selection;
 - tries the complete screen plus top-aligned and centered reference-aspect
   viewports, so navigation bars and taller displays do not require a fixed
   resolution.

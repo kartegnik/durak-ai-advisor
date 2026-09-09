@@ -62,6 +62,27 @@ class AndroidCardModelsTest(unittest.TestCase):
         self.assertTrue(np.isfinite(logits).all())
         self.assertTrue(np.isfinite(hidden).all())
 
+    def test_v4_policy_asset_accepts_dynamic_options_and_two_memories(self):
+        session = ort.InferenceSession(
+            MODELS / "durak_policy_v4.onnx", providers=("CPUExecutionProvider",),
+        )
+        self.assertEqual(
+            [item.name for item in session.get_inputs()],
+            ["observation", "options", "policy_hidden", "belief_hidden"],
+        )
+        logits, policy_hidden, belief_hidden = session.run(None, {
+            "observation": np.zeros(284, dtype=np.float32),
+            "options": np.zeros((3, 43), dtype=np.float32),
+            "policy_hidden": np.zeros(192, dtype=np.float32),
+            "belief_hidden": np.zeros(192, dtype=np.float32),
+        })
+        self.assertEqual(logits.shape, (3,))
+        self.assertEqual(policy_hidden.shape, (192,))
+        self.assertEqual(belief_hidden.shape, (192,))
+        self.assertTrue(np.isfinite(logits).all())
+        self.assertTrue(np.isfinite(policy_hidden).all())
+        self.assertTrue(np.isfinite(belief_hidden).all())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -8,17 +8,20 @@ import java.io.InputStream;
 import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtException;
 import ai.onnxruntime.OrtSession;
 
-/** Runs the original v1 move scorer exported from durak_model.pt. */
+/** Runs the recurrent PPO v4 policy with its separate hidden-card memory. */
 final class DurakPolicyAdvisor implements AutoCloseable {
-    private static final int STATE_SIZE = 150;
-    private static final int COMBINED_SIZE = STATE_SIZE + DurakRules.OPTION_SIZE;
+    private static final int OBSERVATION_SIZE = 284;
+    private static final int HIDDEN_SIZE = 192;
+    private static final int EVENT_SIZE = 45;
 
     static final class Recommendation {
         final String action;
@@ -36,13 +39,15 @@ final class DurakPolicyAdvisor implements AutoCloseable {
 
     private final OrtEnvironment environment;
     private final OrtSession session;
+    private float[] policyHidden = new float[HIDDEN_SIZE];
+    private float[] beliefHidden = new float[HIDDEN_SIZE];
     private String lastSignature;
     private Recommendation lastRecommendation;
 
     DurakPolicyAdvisor(Context context) throws IOException {
         environment = OrtEnvironment.getEnvironment();
         try {
-            session = createSession(context, "models/durak_policy_v1.onnx");
+            session = createSession(context, "models/durak_policy_v4.onnx");
         } catch (OrtException error) {
             throw new IOException("Could not initialize Durak policy", error);
         }
@@ -59,32 +64,51 @@ final class DurakPolicyAdvisor implements AutoCloseable {
             return lastRecommendation;
         }
 
-        float[] state = encodeState(tracker, trump);
-        float[] combined = new float[options.size() * COMBINED_SIZE];
+        float[] observation = encodeObservation(tracker, trump);
+        float[] encodedOptions = new float[options.size() * DurakRules.OPTION_SIZE];
         for (int index = 0; index < options.size(); index++) {
-            int row = index * COMBINED_SIZE;
-            System.arraycopy(state, 0, combined, row, STATE_SIZE);
             float[] encoded = options.get(index).encode();
             System.arraycopy(
-                    encoded, 0, combined, row + STATE_SIZE, DurakRules.OPTION_SIZE);
+                    encoded, 0, encodedOptions,
+                    index * DurakRules.OPTION_SIZE, DurakRules.OPTION_SIZE);
         }
 
-        long[] shape = {options.size(), COMBINED_SIZE};
-        try (OnnxTensor tensor = OnnxTensor.createTensor(
-                    environment, FloatBuffer.wrap(combined), shape);
-             OrtSession.Result result = session.run(
-                     Collections.singletonMap("combined", tensor))) {
-            float[] scores = (float[]) result.get(0).getValue();
-            int selected = maximumIndex(scores);
-            lastSignature = signature;
-            DurakRules.MoveOption choice = options.get(selected);
-            lastRecommendation = new Recommendation(
-                    choice.display, scores[selected], choice.type, choice.card);
-            return lastRecommendation;
+        try (OnnxTensor observationTensor = OnnxTensor.createTensor(
+                    environment, FloatBuffer.wrap(observation),
+                    new long[]{OBSERVATION_SIZE});
+             OnnxTensor optionsTensor = OnnxTensor.createTensor(
+                    environment, FloatBuffer.wrap(encodedOptions),
+                    new long[]{options.size(), DurakRules.OPTION_SIZE});
+             OnnxTensor policyHiddenTensor = OnnxTensor.createTensor(
+                    environment, FloatBuffer.wrap(policyHidden),
+                    new long[]{HIDDEN_SIZE});
+             OnnxTensor beliefHiddenTensor = OnnxTensor.createTensor(
+                    environment, FloatBuffer.wrap(beliefHidden),
+                    new long[]{HIDDEN_SIZE})) {
+            Map<String, OnnxTensor> inputs = new HashMap<>();
+            inputs.put("observation", observationTensor);
+            inputs.put("options", optionsTensor);
+            inputs.put("policy_hidden", policyHiddenTensor);
+            inputs.put("belief_hidden", beliefHiddenTensor);
+            try (OrtSession.Result result = session.run(inputs)) {
+                float[] scores = (float[]) result.get(0).getValue();
+                float[] nextPolicyHidden = (float[]) result.get(1).getValue();
+                float[] nextBeliefHidden = (float[]) result.get(2).getValue();
+                int selected = maximumIndex(scores);
+                policyHidden = nextPolicyHidden.clone();
+                beliefHidden = nextBeliefHidden.clone();
+                lastSignature = signature;
+                DurakRules.MoveOption choice = options.get(selected);
+                lastRecommendation = new Recommendation(
+                        choice.display, scores[selected], choice.type, choice.card);
+                return lastRecommendation;
+            }
         }
     }
 
     void reset() {
+        policyHidden = new float[HIDDEN_SIZE];
+        beliefHidden = new float[HIDDEN_SIZE];
         lastSignature = null;
         lastRecommendation = null;
     }
@@ -98,21 +122,59 @@ final class DurakPolicyAdvisor implements AutoCloseable {
         }
     }
 
-    private static float[] encodeState(GameStateTracker tracker, String trump) {
-        float[] result = new float[STATE_SIZE];
+    private static float[] encodeObservation(GameStateTracker tracker, String trump) {
+        float[] result = new float[OBSERVATION_SIZE];
         int offset = 0;
         offset = putCards(result, offset, tracker.hand());
         offset = putCards(result, offset, tracker.attacks());
         offset = putCards(result, offset, tracker.defenses());
         offset = putCards(result, offset, tracker.discard());
+        offset = putCards(result, offset, tracker.knownOpponent());
+
+        boolean[] visible = new boolean[DurakRules.CARD_COUNT];
+        mark(visible, tracker.hand());
+        mark(visible, tracker.attacks());
+        mark(visible, tracker.defenses());
+        mark(visible, tracker.discard());
+        mark(visible, tracker.knownOpponent());
+        for (int index = 0; index < visible.length; index++) {
+            result[offset + index] = visible[index] ? 0.0f : 1.0f;
+        }
+        offset += DurakRules.CARD_COUNT;
 
         result[offset + DurakRules.suitIndex(trump)] = 1.0f;
         offset += 4;
-        result[offset++] = tracker.deckCount() / 36.0f;
-        // The live tracker never recommends after the defender has forfeited.
+        // The face-up trump rank is not read on Android: nine zeros + known flag.
+        offset += 9;
         result[offset++] = 0.0f;
-        if (offset != STATE_SIZE) {
-            throw new IllegalStateException("State size mismatch: " + offset);
+
+        result[offset++] = Math.min(24, tracker.deckCount()) / 24.0f;
+        result[offset++] = tracker.hand().size() / 36.0f;
+        result[offset++] = tracker.opponentCount() / 36.0f;
+        result[offset++] = tracker.attacks().size() / 6.0f;
+        result[offset++] = tracker.defenses().size() / 6.0f;
+        // When the opening role is unknown, the displayed recommendation is
+        // explicitly conditional on it being our attack, so encode that case.
+        boolean isAttacker = !Boolean.FALSE.equals(tracker.playerAttacker());
+        result[offset++] = isAttacker ? 1.0f : 0.0f;
+        result[offset++] = isAttacker ? 0.0f : 1.0f;
+        result[offset++] = 0.0f;
+        result[offset++] = tracker.defenses().isEmpty() ? 0.0f : 1.0f;
+
+        Integer eventKind = tracker.lastEventKind();
+        if (eventKind != null) {
+            result[offset + eventKind] = 1.0f;
+            for (String card : tracker.lastEventCards()) {
+                result[offset + 7 + DurakRules.cardIndex(card)] = 1.0f;
+            }
+            Boolean actor = tracker.lastEventActorSelf();
+            if (actor != null) {
+                result[offset + 7 + DurakRules.CARD_COUNT + (actor ? 0 : 1)] = 1.0f;
+            }
+        }
+        offset += EVENT_SIZE;
+        if (offset != OBSERVATION_SIZE) {
+            throw new IllegalStateException("Observation size mismatch: " + offset);
         }
         return result;
     }
@@ -122,6 +184,12 @@ final class DurakPolicyAdvisor implements AutoCloseable {
             target[offset + DurakRules.cardIndex(card)] = 1.0f;
         }
         return offset + DurakRules.CARD_COUNT;
+    }
+
+    private static void mark(boolean[] target, Iterable<String> cards) {
+        for (String card : cards) {
+            target[DurakRules.cardIndex(card)] = true;
+        }
     }
 
     private static int maximumIndex(float[] values) {

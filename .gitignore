@@ -72,10 +72,10 @@ test_review_labels.py
 test_status_detector.py
 test_trump_detector.py
 
-# Experimental gameplay checkpoint is kept under runs and is not released.
-durak_model_v4.pt
+# Release gameplay checkpoints are tracked; temporary experiments stay in runs/.
 
 # Temporary files
+:memory:.ses
 *.tmp
 *.bak
 *.swp
