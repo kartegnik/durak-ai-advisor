@@ -246,6 +246,13 @@ def main() -> int:
             flush=True,
         )
 
+        # Evaluation can take much longer than one training batch.  Persist
+        # the freshly trained weights first, so an interrupted evaluation
+        # never makes the last batch disappear on resume.
+        atomic_save(
+            payload(model, optimizer, episode, update, best_metrics, args), latest_path,
+        )
+
         should_evaluate = args.eval_every > 0 and update % args.eval_every == 0
         if should_evaluate:
             model.eval()
