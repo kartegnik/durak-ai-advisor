@@ -1,7 +1,7 @@
 import random
 import unittest
 
-from durakgame import Player
+from durakgame import Card, CardValue, Player, Suit, Table, standardDeck
 from durakgame.game import Game
 from durak_v3.environment import GAME_CONFIG, shuffled_deck
 from durak_v3.model import RecurrentActorCritic
@@ -30,6 +30,40 @@ class V3SearchTest(unittest.TestCase):
         result = search.search(self.root, options)
         self.assertIn(result.action_index, range(len(options)))
         self.assertGreater(result.simulations, 0)
+        self.assertEqual(sum(result.visits), result.simulations)
+        self.assertGreater(result.mean_quiescence_steps, 0.0)
+        self.assertEqual(result.unique_determinizations, 3)
+
+    def test_tree_is_reused_for_the_same_information_state(self):
+        options = self.game.generateOptions()
+        search = InformationSetMCTS(
+            RecurrentActorCritic(hidden_size=32, option_size=16),
+            simulations=4, time_limit_ms=1000, max_depth=8,
+        )
+        first = search.search(self.root, options)
+        second = search.search(self.root, options)
+        self.assertEqual(first.reused_root_visits, 0)
+        self.assertGreaterEqual(second.reused_root_visits, first.simulations)
+        self.assertGreater(sum(second.visits), sum(first.visits))
+
+    def test_small_empty_deck_endgame_is_solved_exactly(self):
+        game = Game(shuffled_deck(1717), Player(), Player(), config=GAME_CONFIG)
+        first = Card(CardValue.Six, Suit.Heart)
+        second = Card(CardValue.Seven, Suit.Cross)
+        game.player1.hand = [first]
+        game.player2.hand = [second]
+        game.deck = []
+        game.table = Table()
+        game.discardPile = set(standardDeck()) - {first, second}
+        root = root_from_game(game, 1, BeliefMemory())
+        options = game.generateOptions()
+        search = InformationSetMCTS(
+            RecurrentActorCritic(hidden_size=32, option_size=16),
+            simulations=8, time_limit_ms=1000,
+        )
+        result = search.search(root, options)
+        self.assertTrue(result.solved_exactly)
+        self.assertEqual(result.values, (1.0,))
         self.assertEqual(sum(result.visits), result.simulations)
 
     def test_search_controller_finishes_a_game(self):

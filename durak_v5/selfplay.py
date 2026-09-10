@@ -20,6 +20,7 @@ class SearchTargetStep:
     options: torch.Tensor
     privileged: torch.Tensor
     policy_target: torch.Tensor
+    search_value: float
 
 
 class SearchSelfPlayController(BaseController):
@@ -28,10 +29,10 @@ class SearchSelfPlayController(BaseController):
     def __init__(
         self,
         model,
-        simulations: int = 32,
-        time_limit_ms: int = 250,
-        exploration_moves: int = 12,
-        root_noise_fraction: float = 0.25,
+        simulations: int = 128,
+        time_limit_ms: int = 1500,
+        exploration_moves: int = 8,
+        root_noise_fraction: float = 0.08,
         root_dirichlet_alpha: float = 0.3,
         record: bool = True,
     ):
@@ -46,9 +47,11 @@ class SearchSelfPlayController(BaseController):
 
     def reset(self, seat: int) -> None:
         super().reset(seat)
+        self.search.reset()
         self.hidden = self.model.initial_hidden()
         self.belief_hidden = self.model.initial_belief_hidden()
         self.steps: list[SearchTargetStep] = []
+        self.search_results = []
         self.decisions = 0
 
     def choose(self, game, seat: int, options) -> int:
@@ -71,6 +74,7 @@ class SearchSelfPlayController(BaseController):
                 root_noise_fraction=self.root_noise_fraction,
                 root_dirichlet_alpha=self.root_dirichlet_alpha,
             )
+        self.search_results.append(result)
 
         visits = torch.tensor(result.visits, dtype=torch.float32)
         if float(visits.sum()) == 0.0:
@@ -78,8 +82,13 @@ class SearchSelfPlayController(BaseController):
         else:
             policy_target = visits / visits.sum()
         if self.record:
+            search_value = sum(
+                float(probability) * value
+                for probability, value in zip(policy_target, result.values)
+            )
             self.steps.append(SearchTargetStep(
                 observation, encoded_options, privileged, policy_target,
+                search_value,
             ))
 
         if self.decisions < self.exploration_moves:

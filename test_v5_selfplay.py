@@ -40,6 +40,8 @@ class V5SelfPlayTest(unittest.TestCase):
         self.assertIn(action, range(len(options)))
         self.assertEqual(len(controller.steps), 1)
         self.assertAlmostEqual(float(controller.steps[0].policy_target.sum()), 1.0)
+        self.assertGreaterEqual(controller.steps[0].search_value, -1.0)
+        self.assertLessEqual(controller.steps[0].search_value, 1.0)
         loss, metrics = alphazero_loss(
             self.model, [controller.steps], [1.0], belief_coefficient=0.1,
         )

@@ -1,6 +1,9 @@
 import unittest
 
-from durakgame import Card, CardValue, FinishingMove, OpeningMove, Suit, Table
+from durakgame import (
+    Card, CardValue, DefensiveMove, FinishingMove, ForfeitingMove, OpeningMove,
+    Suit, Table,
+)
 from durak_v3.model import RecurrentActorCritic
 from durak_v3.observation import (
     BeliefMemory, OBSERVATION_DIM, PRIVILEGED_DIM, PublicView, encode_observation,
@@ -23,6 +26,28 @@ class V3ObservationTest(unittest.TestCase):
         self.assertEqual(memory.known_opponent, {six_h, seven_h})
         memory.observe(OpeningMove(six_h), actor_is_self=False, table_before=Table())
         self.assertEqual(memory.known_opponent, {seven_h})
+
+    def test_mirror_memory_tracks_what_opponent_knows_about_us(self):
+        six_h = card(CardValue.Six, Suit.Heart)
+        seven_h = card(CardValue.Seven, Suit.Heart)
+        table = Table(attack=[six_h], defense=[seven_h], isForfeited=True)
+        memory = BeliefMemory()
+        memory.observe(FinishingMove([]), actor_is_self=False, table_before=table)
+        self.assertEqual(memory.known_self_public, {six_h, seven_h})
+        mirrored = memory.opponent_view()
+        self.assertEqual(mirrored.known_opponent, {six_h, seven_h})
+        memory.observe(OpeningMove(six_h), actor_is_self=True, table_before=Table())
+        self.assertEqual(memory.known_self_public, {seven_h})
+
+    def test_declined_defense_is_soft_public_evidence(self):
+        six_h = card(CardValue.Six, Suit.Heart)
+        eight_h = card(CardValue.Eight, Suit.Heart)
+        table = Table(attack=[six_h])
+        memory = BeliefMemory()
+        memory.observe(ForfeitingMove(), actor_is_self=False, table_before=table)
+        self.assertEqual(memory.opponent_declined_attacks, {six_h})
+        memory.observe(DefensiveMove(eight_h), actor_is_self=False, table_before=table)
+        self.assertFalse(memory.opponent_declined_attacks)
 
     def test_observation_and_model_shapes(self):
         six_h = card(CardValue.Six, Suit.Heart)

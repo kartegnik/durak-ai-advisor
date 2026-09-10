@@ -42,22 +42,48 @@ def move_kind(move: Move) -> int:
 
 @dataclass
 class BeliefMemory:
-    """Cards publicly known to remain in the opponent's hand plus last event."""
+    """Public card knowledge from one player's point of view plus last event."""
 
     known_opponent: set[Card] = field(default_factory=set)
+    # Cards in our hand which the opponent saw us pick up.  Keeping the mirror
+    # view lets information-set search initialise both players honestly.
+    known_self_public: set[Card] = field(default_factory=set)
+    opponent_declined_attacks: set[Card] = field(default_factory=set)
+    self_declined_attacks: set[Card] = field(default_factory=set)
     last_kind: int | None = None
     last_cards: tuple[Card, ...] = ()
     last_actor_self: bool | None = None
 
     def clone(self) -> "BeliefMemory":
         return BeliefMemory(
-            set(self.known_opponent), self.last_kind,
-            tuple(self.last_cards), self.last_actor_self,
+            known_opponent=set(self.known_opponent),
+            known_self_public=set(self.known_self_public),
+            opponent_declined_attacks=set(self.opponent_declined_attacks),
+            self_declined_attacks=set(self.self_declined_attacks),
+            last_kind=self.last_kind,
+            last_cards=tuple(self.last_cards),
+            last_actor_self=self.last_actor_self,
+        )
+
+    def opponent_view(self) -> "BeliefMemory":
+        """Mirror public pickup knowledge for a sampled opponent."""
+        return BeliefMemory(
+            known_opponent=set(self.known_self_public),
+            known_self_public=set(self.known_opponent),
+            opponent_declined_attacks=set(self.self_declined_attacks),
+            self_declined_attacks=set(self.opponent_declined_attacks),
+            last_kind=self.last_kind,
+            last_cards=tuple(self.last_cards),
+            last_actor_self=(
+                None if self.last_actor_self is None else not self.last_actor_self
+            ),
         )
 
     def observe(self, move: Move, actor_is_self: bool, table_before) -> None:
         cards = move_cards(move)
-        if not actor_is_self:
+        if actor_is_self:
+            self.known_self_public.difference_update(cards)
+        else:
             self.known_opponent.difference_update(cards)
 
         # A finishing move completes a take. If we are the attacker, every
@@ -66,6 +92,22 @@ class BeliefMemory:
             self.known_opponent.update(table_before.attack)
             self.known_opponent.update(table_before.defense)
             self.known_opponent.update(cards)
+        elif isinstance(move, FinishingMove) and not actor_is_self:
+            self.known_self_public.update(table_before.attack)
+            self.known_self_public.update(table_before.defense)
+            self.known_self_public.update(cards)
+
+        # Taking instead of defending is evidence, not proof, that the player
+        # lacks a suitable cover.  Search uses these as soft sampling weights.
+        if isinstance(move, ForfeitingMove):
+            undefended = table_before.attack[len(table_before.defense):]
+            target = self.self_declined_attacks if actor_is_self else self.opponent_declined_attacks
+            target.update(undefended)
+        elif isinstance(move, DefensiveMove):
+            target = self.self_declined_attacks if actor_is_self else self.opponent_declined_attacks
+            target.difference_update({
+                attack for attack in target if _beats(move.card, attack)
+            })
 
         self.last_kind = move_kind(move)
         self.last_cards = tuple(cards)
@@ -82,6 +124,11 @@ class BeliefMemory:
         actor_offset = offset + NUM_CARDS
         result[actor_offset + (0 if self.last_actor_self else 1)] = 1.0
         return result
+
+
+def _beats(card: Card, attack: Card) -> bool:
+    """Suit-only evidence helper; trump relationships are handled by search."""
+    return card.suit == attack.suit and card.value > attack.value
 
 
 @dataclass(frozen=True)

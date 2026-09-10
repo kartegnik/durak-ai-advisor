@@ -8,7 +8,10 @@ import torch.nn.functional as F
 from durak_v4.belief import belief_cross_entropy
 
 
-def alphazero_loss(model, trajectories, outcomes, belief_coefficient: float = 0.1):
+def alphazero_loss(
+    model, trajectories, outcomes, belief_coefficient: float = 0.1,
+    search_value_coefficient: float = 0.25,
+):
     policy_losses = []
     value_losses = []
     belief_losses = []
@@ -27,7 +30,11 @@ def alphazero_loss(model, trajectories, outcomes, belief_coefficient: float = 0.
             log_probabilities = logits.log_softmax(dim=0)
             probabilities = log_probabilities.exp()
             policy_losses.append(-(step.policy_target * log_probabilities).sum())
-            value_losses.append(F.mse_loss(value, value.new_tensor(outcome)))
+            value_target = (
+                (1.0 - search_value_coefficient) * outcome
+                + search_value_coefficient * step.search_value
+            )
+            value_losses.append(F.mse_loss(value, value.new_tensor(value_target)))
             belief_losses.append(belief_cross_entropy(
                 belief_logits, step.observation, step.privileged,
             ))

@@ -60,7 +60,14 @@ def payload(model, optimizer, episode: int, update: int, metrics: dict, args) ->
         "search_config": {
             "simulations": args.simulations,
             "time_limit_ms": args.search_ms,
+            "exploration_moves": args.exploration_moves,
             "root_noise_fraction": args.root_noise,
+            "dirichlet_alpha": args.dirichlet_alpha,
+            "search_value_coefficient": args.search_value_coefficient,
+            "quiescence": True,
+            "habr_leaf_weight": 0.10,
+            "reuse_tree": True,
+            "exact_endgame_cards": 10,
         },
     }
 
@@ -73,13 +80,18 @@ def load_v5(path: Path):
     return model, checkpoint
 
 
-def evaluate_candidate(model, champion, games_per_seat: int, seed: int) -> dict:
+def evaluate_candidate(model, champion, baseline_v4, games_per_seat: int, seed: int) -> dict:
     candidate = lambda: RecurrentController(model, deterministic=True)
     return {
         "champion": evaluate_factories(
             candidate,
             lambda: RecurrentController(champion, deterministic=True),
             games_per_seat, seed,
+        ),
+        "v4_baseline": evaluate_factories(
+            candidate,
+            lambda: RecurrentController(baseline_v4, deterministic=True),
+            games_per_seat, seed + 5_000,
         ),
         "habr_memory": evaluate_factories(
             candidate, HabrMemoryController, games_per_seat, seed + 10_000,
@@ -100,15 +112,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-trajectories", type=int, default=32)
     parser.add_argument("--train-epochs", type=int, default=2)
     parser.add_argument("--simulations", type=int, default=32)
-    parser.add_argument("--search-ms", type=int, default=250)
-    parser.add_argument("--exploration-moves", type=int, default=12)
-    parser.add_argument("--root-noise", type=float, default=0.25)
+    parser.add_argument("--search-ms", type=int, default=1500)
+    parser.add_argument("--exploration-moves", type=int, default=8)
+    parser.add_argument("--root-noise", type=float, default=0.08)
     parser.add_argument("--dirichlet-alpha", type=float, default=0.3)
     parser.add_argument("--learning-rate", type=float, default=5e-5)
     parser.add_argument("--belief-coefficient", type=float, default=0.1)
+    parser.add_argument("--search-value-coefficient", type=float, default=0.25)
     parser.add_argument("--eval-every", type=int, default=10)
-    parser.add_argument("--eval-games", type=int, default=200)
-    parser.add_argument("--promotion-score", type=float, default=0.55)
+    parser.add_argument("--eval-games", type=int, default=1000)
+    parser.add_argument("--promotion-score", type=float, default=0.53)
+    parser.add_argument("--v4-safety-score", type=float, default=0.51)
     parser.add_argument("--seed", type=int, default=20260910)
     parser.add_argument("--fresh", action="store_true")
     return parser.parse_args()
@@ -120,6 +134,7 @@ def main() -> int:
     latest_path = args.run_dir / "latest.pt"
     best_path = args.run_dir / "best.pt"
     metrics_path = args.run_dir / "metrics.jsonl"
+    training_path = args.run_dir / "train_metrics.jsonl"
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
@@ -146,6 +161,8 @@ def main() -> int:
         print(f"Bootstrapped v5 from {args.base_v4}; v4 remains unchanged", flush=True)
 
     champion = frozen_model(champion)
+    baseline_v4, _ = load_v4(args.base_v4)
+    baseline_v4 = frozen_model(baseline_v4)
     replay: deque[tuple[list, float]] = deque(maxlen=args.replay_games * 2)
     stopped = [False]
 
@@ -160,6 +177,7 @@ def main() -> int:
     while episode < args.episodes and not stopped[0]:
         games_now = min(args.batch_games, args.episodes - episode)
         selfplay_points = 0.0
+        search_results = []
         champion.eval()
         for _ in range(games_now):
             player1 = SearchSelfPlayController(
@@ -178,6 +196,8 @@ def main() -> int:
             first_reward = reward(outcome.result)
             replay.append((player1.steps, first_reward))
             replay.append((player2.steps, -first_reward))
+            search_results.extend(player1.search_results)
+            search_results.extend(player2.search_results)
             selfplay_points += (first_reward + 1.0) / 2.0
             episode += 1
 
@@ -192,6 +212,7 @@ def main() -> int:
                 [item[0] for item in sample],
                 [item[1] for item in sample],
                 args.belief_coefficient,
+                args.search_value_coefficient,
             )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -199,6 +220,24 @@ def main() -> int:
             for name in totals:
                 totals[name] += loss_metrics[name] / args.train_epochs
         update += 1
+        search_calls = max(1, len(search_results))
+        search_metrics = {
+            "calls": len(search_results),
+            "simulations_per_call": sum(item.simulations for item in search_results) / search_calls,
+            "determinizations_per_call": sum(item.unique_determinizations for item in search_results) / search_calls,
+            "reused_root_visits_per_call": sum(item.reused_root_visits for item in search_results) / search_calls,
+            "mean_leaf_depth": sum(item.mean_leaf_depth for item in search_results) / search_calls,
+            "mean_quiescence_steps": sum(item.mean_quiescence_steps for item in search_results) / search_calls,
+            "exact_endgames": sum(item.solved_exactly for item in search_results),
+        }
+        train_record = {
+            "episode": episode, "update": update,
+            "selfplay_p1": selfplay_points / games_now,
+            **totals, "search": search_metrics,
+            "elapsed": time.time() - started,
+        }
+        with training_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(train_record) + "\n")
         print(
             f"update={update:>5d} episode={episode:>7d} "
             f"selfplay_p1={selfplay_points / games_now:.1%} "
@@ -211,9 +250,13 @@ def main() -> int:
         if should_evaluate:
             model.eval()
             metrics = evaluate_candidate(
-                model, champion, args.eval_games, args.seed + 2_000_000 + update * 1000,
+                model, champion, baseline_v4, args.eval_games,
+                args.seed + 2_000_000 + update * 1000,
             )
-            promoted = metrics["champion"]["points"] >= args.promotion_score
+            promoted = (
+                metrics["champion"]["points"] >= args.promotion_score
+                and metrics["v4_baseline"]["points"] >= args.v4_safety_score
+            )
             record = {
                 "episode": episode, "update": update,
                 "elapsed": time.time() - started,
@@ -226,6 +269,10 @@ def main() -> int:
                     f"{name}={value['points']:.1%}" for name, value in metrics.items()
                 ) + (" PROMOTED" if promoted else ""),
                 flush=True,
+            )
+            atomic_save(
+                payload(model, optimizer, episode, update, metrics, args),
+                args.run_dir / "checkpoints" / f"update_{update:05d}.pt",
             )
             if promoted:
                 best_metrics = copy.deepcopy(metrics)

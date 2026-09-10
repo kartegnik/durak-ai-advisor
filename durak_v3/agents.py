@@ -103,15 +103,19 @@ class SearchController(BaseController):
     def __init__(
         self, model: RecurrentActorCritic, simulations: int = 128,
         time_limit_ms: int = 300,
+        **search_kwargs,
     ):
         from .search import InformationSetMCTS
         self.model = model
         self.search = InformationSetMCTS(
             model, simulations=simulations, time_limit_ms=time_limit_ms,
+            **search_kwargs,
         )
 
     def reset(self, seat: int) -> None:
         super().reset(seat)
+        self.search.reset()
+        self.search_results = []
         self.hidden = self.model.initial_hidden()
         self.belief_hidden = (
             self.model.initial_belief_hidden()
@@ -139,6 +143,8 @@ class SearchController(BaseController):
             root_from_game(game, seat, self.memory), options, hidden_before,
             opponent_weights,
         )
+        self.last_search_result = result
+        self.search_results.append(result)
         return result.action_index
 
 

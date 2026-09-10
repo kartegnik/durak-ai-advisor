@@ -73,6 +73,38 @@ def can_beat(card, attack, trump_suit) -> bool:
     return card.suit == attack.suit and card.value > attack.value
 
 
+def strategic_hand_value(
+    hand, trump_suit, deck_count: int, opponent_count: int, active_cards,
+) -> float:
+    """Phase-aware extension using the number of remaining possible beaters.
+
+    While the deck exists, hand strength remains important.  Once it is empty,
+    card count dominates and strength matters only as a way to complete the
+    final defense.  This follows the strategic split proposed in the 2015 Habr
+    article without turning its observations into brittle special cases.
+    """
+    cards = list(hand)
+    active = set(active_cards)
+    if not cards and deck_count == 0:
+        return float(OUT_OF_PLAY)
+    control = 0.0
+    for card in cards:
+        beaters = sum(
+            other != card and can_beat(other, card, trump_suit)
+            for other in active
+        )
+        control += 180.0 / (1.0 + beaters)
+    duplicate_bonus = 90.0 * sum(
+        max(0, count - 1) for count in Counter(card.value for card in cards).values()
+    )
+    if deck_count == 0:
+        return -1800.0 * len(cards) + control + duplicate_bonus
+    base = hand_value(cards, trump_suit, deck_count, opponent_count)
+    # The value of control rises as the draw pile approaches exhaustion.
+    phase_weight = 1.0 - min(deck_count, 24) / 24.0
+    return base + (0.35 + 0.65 * phase_weight) * (control + duplicate_bonus)
+
+
 def _probability_at_least_one(population: int, successes: int, draws: int) -> float:
     if successes <= 0 or draws <= 0 or population <= 0:
         return 0.0
@@ -122,8 +154,10 @@ class HabrMemoryController(BaseController):
 
     def score_move(self, game, seat: int, move) -> float:
         hand = self.projected_hand(game, seat, move)
-        score = hand_value(
+        active = set(CARD_TO_INDEX) - set(game.discardPile)
+        score = strategic_hand_value(
             hand, game.trump.suit, len(game.deck), self._opponent_count(game, seat),
+            active,
         )
 
         # Public-memory terms.  These estimate whether an attack is likely to
